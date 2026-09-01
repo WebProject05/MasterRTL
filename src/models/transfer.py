@@ -1,9 +1,5 @@
 """RTL-Stage Transfer Modeling Framework for MasterRTL.
 
-Corresponds to Section II-E and Table II in:
-"Transferable Presynthesis PPA Estimation for RTL Designs With Data Augmentation Techniques"
-(IEEE TCAD 2025).
-
 Architecture:
 1. Layout stage transfer (post-synthesis -> post-placement PPA)
 2. Technology node transfer (NanGate 45nm -> TSMC 22/28/40/65nm)
