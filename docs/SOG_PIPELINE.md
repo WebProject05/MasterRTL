@@ -284,5 +284,82 @@ python -m src.data_prep.sog_converter data/yosys_synth/adder_cla_16bit.json -o d
 ```bash
 pytest -v
 ```
-Verifies toolchain discovery, operator normalization, STA DAG reachability, critical path extraction, and report generation.
+Verifies toolchain discovery, operator normalization, STA DAG reachability, critical path extraction, and all ML models.
+
+---
+
+## 6. Machine Learning Models for Presynthesis PPA Estimation
+
+MasterRTL implements the exact multistage modeling architecture specified in **Table II** of the reference paper:
+
+### 6.1 Timing Model Architecture (Section II-B)
+1. **Analytical Node Delay**: Linear RC delay model evaluated on SOG ($k_{\text{fanout}} = 0.15$).
+2. **Critical Path Extraction**: Acyclic STA DAG dynamic programming extracting $N$ endpoint paths $P^R_{* \to j}$.
+3. **Path-Level Delay Model ($f_{\text{path}}^t$)**:
+   - **Model**: `RandomForestRegressor` with 80 trees, max depth of 20.
+   - **Features**: Total nodes on path, operator counts (`AND`, `OR`, `XOR`, `NOT`, `MUX`, `DFF`), accumulated analytical delay, accumulated fan-out.
+   - **Output**: Predicted gate-level netlist path delay.
+4. **Path-Level Inference Engine**:
+   - For all $N$ endpoint paths, predicts delay $\hat{d}_j$.
+   - $\text{WNS}^R = \min_{j} (clk - \hat{d}_j)$.
+   - $\text{TNS}^R = \sum_{j} \min(0, clk - \hat{d}_j)$.
+   - Slack distribution percentiles: worst 1% of critical paths (worst, 10%, 50%, 90% percentiles).
+5. **Design-Level Timing Calibration Model**:
+   - **Model**: `XGBoostRegressor` with 45 estimators, max depth of 8.
+   - **Features**: Design scale features (total nodes, edges, registers, combinational nodes, operator breakdown) + path estimates ($\text{WNS}^R, \text{TNS}^R$) + slack percentiles.
+   - **Target**: Calibrated netlist $\text{WNS}$ and $\text{TNS}$.
+
+### 6.2 Power Model Architecture (Section II-C)
+1. **Toggle Rate Propagation**: Topologically propagates switching activities $\alpha(v)$ through logic gates.
+2. **Module/Sub-SOG Level Power Model**:
+   - **Model**: `XGBoostRegressor` with 30 estimators, max depth of 6.
+   - **Features**: Sum of toggle rates, average toggle rate, fanout-weighted switching sum ($\sum \text{fan\_out} \cdot \alpha$), total nodes, operator breakdown.
+   - Computes $\text{Power}^G = \sum_{i=1}^M k_i \cdot \text{Power}^{G_i}$.
+3. **Design-Level Power Calibration Model**:
+   - **Model**: `XGBoostRegressor` with 45 estimators, max depth of 8.
+   - **Features**: Summed module power, global toggle statistics, and whole SOG design scale.
+   - **Target**: Calibrated total power ($P_G$).
+
+### 6.3 Area Model Architecture (Section II-D)
+1. **Sequential Area**:
+   - Exact analytical formula: $\text{Area}_{\text{seq}} = N_{\text{registers}} \times \text{Area}_{\text{DFF}}$ (NanGate 45nm standard cell DFF area $= 4.522\,\mu m^2$).
+2. **Combinational Area Prediction**:
+   - **Model**: `XGBoostRegressor` with 45 estimators, max depth of 12.
+   - **Features**: Preliminary combinational area from operator weights, gate counts (`AND`, `OR`, `XOR`, `NOT`, `MUX`), total nodes, edges, density, and fan-in/fan-out statistics.
+3. **Total Area**:
+   - $\text{Area}_{\text{total}} = \text{Area}_{\text{seq}} + \widehat{\text{Area}}_{\text{comb}}$.
+
+### 6.4 Transfer Model Architecture (Section II-E)
+1. **Layout & Tech Transfer Model**:
+   - **Model**: `XGBoostRegressor` with 15 estimators, max depth of 8.
+   - **Features**: Initial MasterRTL source PPA predictions, library scaling factors between target and source libraries, scaled PPA metrics, and design scale features.
+   - **Targets**: Post-placement PPA (layout stage) and cross-technology PPA (TSMC 22nm, 28nm, 40nm, 65nm, MIN/MAX process corners).
+
+---
+
+## 7. Model Training & 10-Fold Cross-Validation
+
+To reproduce the experimental methodology in Section III-A:
+
+```powershell
+# Windows PowerShell
+.\scripts\train_all.ps1
+```
+
+```bash
+# Linux / macOS
+./scripts/train_all.sh
+```
+
+```bash
+# Python Direct
+python scripts/train_all.py --k-folds 10 --output-model models/master_rtl_checkpoint.pkl
+```
+
+### Evaluation Metrics (Section III-A, Equations 4, 5, 6)
+- **Correlation ($R$)**: Pearson correlation coefficient between predicted and ground-truth metrics.
+- **MAPE (%)**: Mean Absolute Percentage Error.
+- **MAE**: Mean Absolute Error.
+- **RRSE**: Root Relative Square Error.
+
 

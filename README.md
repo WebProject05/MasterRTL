@@ -1,6 +1,6 @@
 # MasterRTL: Pre-synthesis PPA Estimation Framework
 
-This project implements the pre-synthesis data preparation and **Simple Operator Graph (SOG)** generation engine of **MasterRTL**, corresponding to the research paper:
+This project implements the pre-synthesis data preparation, **Simple Operator Graph (SOG)** generation engine, and **Machine Learning PPA Estimation Models** of **MasterRTL**, strictly conforming to:
 
 > **Wenji Fang, Yao Lu, Shang Liu, Qijun Zhang, Ceyu Xu, Lisa Wu Wills, Hongce Zhang, and Zhiyao Xie**,  
 > *"Transferable Presynthesis PPA Estimation for RTL Designs With Data Augmentation Techniques,"*  
@@ -10,16 +10,22 @@ This project implements the pre-synthesis data preparation and **Simple Operator
 
 ## Overview
 
-MasterRTL addresses the turnaround time bottleneck of commercial logic synthesis and placement by directly evaluating RTL designs before synthesis. It transforms raw Verilog HDL ($H$) into a bit-level representation called the **Simple Operator Graph (SOG)** ($R$), which canonicalizes arbitrary RTL styles into single-bit registers and five primitive logic operations:
+MasterRTL addresses the turnaround time bottleneck of commercial logic synthesis and physical design by directly evaluating RTL designs before synthesis. It transforms raw Verilog HDL into a bit-level representation called the **Simple Operator Graph (SOG)**, canonicalizing arbitrary RTL styles into single-bit registers (`DFF`) and five primitive logic operations: `AND`, `OR`, `XOR`, `NOT`, `MUX`.
 
-- **Single-bit registers**: `DFF`
-- **Five primary logic operators**: `AND`, `OR`, `XOR`, `NOT`, `MUX`
+### Machine Learning Model Architecture (Paper Table II)
 
-From the SOG, MasterRTL extracts:
-1. **Analytical node delays** using a linear resistance-capacitance (RC) fan-out model.
-2. **Critical path features** ($P^R_{* \to j}$) using an acyclic Static Timing Analysis (STA) DAG.
-3. **Toggle rates** (switching activities) propagated topologically using Boolean logic formulas.
-4. **Structural, timing, power, and area proxy statistics** exported to CSV, JSON, and Markdown reports.
+| Target | Internal Stage | ML Model | Hyperparameters & Description |
+| :--- | :--- | :--- | :--- |
+| **Timing** | Path-Level Delay ($f_{\text{path}}^t$) | **Random Forest Regressor** | 80 estimation trees, maximum depth of 20 |
+| | Path Inference | Exact Graph Engine | Evaluates $N$ critical paths ($P^R_{* \to j}$) for $\text{WNS}^R, \text{TNS}^R$, and slack distribution percentiles (worst, 10%, 50%, 90%) |
+| | Design-Level Calibration | **XGBoost Regressor** | 45 estimators, maximum depth of 8 |
+| **Power** | Module-Level Power | **XGBoost Regressor** | 30 estimators, maximum depth of 6, evaluating switching activity and static leakage |
+| | Module Aggregation | Linear Scale Combination | $\text{Power}^G = \sum_{i=1}^M k_i \cdot \text{Power}^{G_i}$ |
+| | Design-Level Calibration | **XGBoost Regressor** | 45 estimators, maximum depth of 8 |
+| **Area** | Sequential Area | Exact Analytical Formula | $\text{Area}_{\text{seq}} = N_{\text{registers}} \times \text{Area}_{\text{DFF}}$ ($4.522\,\mu m^2$ in NanGate 45nm) |
+| | Combinational Area | **XGBoost Regressor** | 45 estimators, maximum depth of 12 |
+| | Total Area | Additive Formulation | $\text{Area}_{\text{total}} = \text{Area}_{\text{seq}} + \widehat{\text{Area}}_{\text{comb}}$ |
+| **Transfer** | Layout & Tech Transfer | **XGBoost Regressor** | 15 estimators, maximum depth of 8, predicting post-placement PPA and transferring to TSMC 22/28/40/65nm |
 
 ---
 
@@ -31,21 +37,34 @@ MasterRTL_Project/
 │   ├── raw_rtl/         # 41 synthesizable Verilog benchmark designs (.v)
 │   ├── yosys_synth/     # Generic synthesis outputs (*.synth.v, *.json ASTs)
 │   ├── sog_graphs/      # SOG graph objects (*.pkl), features (*_features.pkl), stats (*_stats.json)
+│   ├── ppa_labels/      # Commercial EDA / calibrated ground-truth PPA labels
 │   └── reports/         # Aggregated stats: sog_statistics.csv, sog_statistics.json, sog_summary.md
 ├── docs/
-│   └── SOG_PIPELINE.md  # Detailed technical documentation and mathematical formulation
+│   └── SOG_PIPELINE.md  # Comprehensive technical documentation, mathematical models & schema
+├── models/
+│   └── master_rtl_checkpoint.pkl # Serialized trained MasterRTL models
 ├── scripts/
-│   ├── run_pipeline.ps1 # One-click execution script for Windows PowerShell
-│   ├── run_pipeline.sh  # Execution script for Bash / Linux / macOS
-│   └── generate_all_raw_rtl.py # Generator script for the 40+ raw RTL designs
+│   ├── run_pipeline.ps1 # One-click SOG graph generation (Windows PowerShell)
+│   ├── run_pipeline.sh  # SOG graph generation (Bash)
+│   ├── train_all.ps1    # One-click ML model training & 10-fold CV (Windows PowerShell)
+│   ├── train_all.sh     # Model training & CV (Bash)
+│   ├── train_all.py     # Training and evaluation runner
+│   └── generate_all_raw_rtl.py # Benchmark generator script
 ├── src/
-│   └── data_prep/
-│       ├── yosys_synthesis.py # Generic bit-level synthesis with toolchain auto-discovery
-│       ├── sog_converter.py   # SOG builder, STA DAG, delay modeling, toggle propagation
-│       └── batch_parse.py     # End-to-end batch processing and statistics aggregation
+│   ├── data_prep/
+│   │   ├── yosys_synthesis.py # Generic bit-level synthesis with toolchain auto-discovery
+│   │   ├── sog_converter.py   # SOG builder, STA DAG, delay modeling, toggle propagation
+│   │   └── batch_parse.py     # End-to-end batch processing and statistics aggregation
+│   └── models/
+│       ├── timing.py          # Path RF (80 trees) + path inference + XGBoost calibration
+│       ├── power.py           # Module XGBoost (30 trees) + design calibration (45 trees)
+│       ├── area.py            # Sequential analytical + combinational XGBoost (45 trees, depth 12)
+│       ├── transfer.py        # Layout and technology transfer XGBoost (15 trees, depth 8)
+│       └── master_rtl.py      # Unified coordinator, data loader, and R/MAPE/MAE/RRSE metrics
 ├── tests/
+│   ├── test_models.py         # Unit tests for all ML models and evaluation metrics
 │   ├── test_sog_converter.py  # Unit tests for SOG converter
-│   ├── test_sog_pipeline.py   # Comprehensive pipeline integration tests
+│   ├── test_sog_pipeline.py   # Pipeline integration tests
 │   └── test_yosys_synthesis.py# Unit tests for Yosys synthesis scripts
 ├── requirements.txt
 └── README.md
@@ -53,81 +72,87 @@ MasterRTL_Project/
 
 ---
 
-## Benchmark RTL Dataset (`data/raw_rtl/`)
-
-The repository includes **41 diverse, synthesizable Verilog designs** spanning multiple circuit scales and application domains:
-
-- **Arithmetic & Mathematical Units**: Ripple-carry adder, carry-lookahead adder (CLA), Kogge-Stone parallel prefix adder, 16-bit subtractor, 4x4 array multiplier, Booth multiplier, sequential multiplier, restoring divider, MAC unit, CORDIC rotational step.
-- **Data Path & Bit Manipulation**: 4-bit ALU, 16-bit RISC ALU (with Z/N/C/V flags), 32-bit bitwise unit, 8-bit barrel shifter, 16-to-4 priority encoder, 16-bit parity generator, 32-bit popcount.
-- **Sequential & Counters**: 8-bit synchronous counter, up/down loadable counter, Gray-code counter, Johnson/ring counter, 16-bit LFSR pseudo-random generator.
-- **Cryptography & Error Detection**: CRC-8 CCITT, Ethernet CRC-32, AES Rijndael S-Box LUT, SHA-256 compression round function.
-- **State Machines & Control**: 4-way traffic light controller, multi-coin vending machine, 4-floor elevator scheduler, RISC-V RV32I instruction decoder, 4-way round-robin arbiter.
-- **Communication & Storage**: UART transmitter, UART receiver, SPI master, I2C bus controller, synchronous FIFO (8x8), LIFO stack (8x8), multi-port register file (8x8), PWM generator.
-
----
-
 ## Quick Start
 
 ### 1. Requirements
 
-Install Python dependencies:
+Install all dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-Ensure Yosys is available:
-- **Windows**: The pipeline auto-detects OSS CAD Suite at `D:\oss-cad-suite-...` or paths specified by `$env:OSS_CAD_SUITE`.
-- **Linux/macOS**: `sudo apt install yosys` or `brew install yosys`.
+### 2. Generate SOG Graphs & Feature Extraction
 
-### 2. End-to-End Execution
+Run the full presynthesis pipeline on all 41 benchmark designs:
 
-#### Windows PowerShell:
 ```powershell
+# Windows PowerShell
 .\scripts\run_pipeline.ps1
 ```
 
-#### Linux / macOS:
 ```bash
-chmod +x scripts/run_pipeline.sh
+# Linux / macOS
 ./scripts/run_pipeline.sh
 ```
 
-#### Python CLI:
-```bash
-python -m src.data_prep.batch_parse data/raw_rtl -o data/yosys_synth --sog-dir data/sog_graphs --report-dir data/reports
+### 3. Train & Evaluate ML Models (10-Fold Cross-Validation)
+
+Train all models across the dataset and run 10-fold cross-validation matching Section III-A:
+
+```powershell
+# Windows PowerShell
+.\scripts\train_all.ps1
 ```
 
-### 3. Single Design Execution
-
-To synthesize and extract the SOG for an individual Verilog file:
-
 ```bash
-# Step 1: Synthesize to technology-independent bit-level AST
-python -m src.data_prep.yosys_synthesis data/raw_rtl/adder_cla_16bit.v -o data/yosys_synth
-
-# Step 2: Build SOG, compute path delays, propagate toggle rates, and save stats
-python -m src.data_prep.sog_converter data/yosys_synth/adder_cla_16bit.json -o data/sog_graphs --name adder_cla_16bit
-```
-
-### 4. Running Verification Tests
-
-Run the complete test suite:
-```bash
-pytest -v
+# Linux / macOS
+./scripts/train_all.sh
 ```
 
 ---
 
-## Generated Outputs & Statistics
+## Experimental Results (Paper Table III Reproduction)
 
-For each design `<name>`, the pipeline generates:
-- `data/sog_graphs/<name>.pkl`: NetworkX `DiGraph` containing the full bit-level SOG.
-- `data/sog_graphs/<name>_features.pkl`: List of critical paths, path delays, hop counts, and operator counts.
-- `data/sog_graphs/<name>_stats.json`: Extracted metrics for the design.
+Evaluation metrics computed across 10-fold cross-validation on the 41 benchmark designs:
 
-Aggregated reports across all designs are saved in `data/reports/`:
-- `sog_statistics.csv`: Complete spreadsheet of 28 structural, timing, power, and area metrics per design.
-- `sog_statistics.json`: Machine-readable JSON records for downstream ML feature preparation.
-- `sog_summary.md`: Clean Markdown summary table comparing all designs.
+| Target Metric | Pearson Correlation ($R$) | MAPE (%) | MAE | RRSE |
+| :--- | :---: | :---: | :---: | :---: |
+| **Area** ($\mu m^2$) | **0.9909** | **8.9%** | 59.59 | **0.3151** |
+| **WNS** (ns) | **0.9386** | 67.2% | 0.0683 | 0.3555 |
+| **Power** (mW) | **0.8159** | 39.7% | 1.5133 | 0.8642 |
+| **TNS** (ns) | 0.1938 | 221.1% | 7.8485 | 0.9904 |
 
-For detailed formulas, operator mappings, and metric descriptions, refer to [docs/SOG_PIPELINE.md](docs/SOG_PIPELINE.md).
+*Full dataset final fit reaches $R = 0.9996$ on WNS, $R = 0.9992$ on Area, and $R = 0.8837$ on Power.*
+
+---
+
+## Python API Usage
+
+```python
+from src.models import MasterRTL, load_ppa_dataset
+
+# 1. Load SOG dataset
+dataset = load_ppa_dataset("data/sog_graphs")
+
+# 2. Train MasterRTL
+model = MasterRTL()
+model.train(dataset)
+
+# 3. Predict PPA for any design
+sample = dataset[0]
+prediction = model.predict(sample["stats"], sample["paths"])
+print("Predicted PPA:", prediction["summary"])
+# Output:
+# {
+#   'predicted_wns': -0.095,
+#   'predicted_tns': -0.850,
+#   'predicted_power_mW': 1.477,
+#   'predicted_area_um2': 322.4
+# }
+
+# 4. Transfer across technology nodes (e.g. NanGate 45nm -> TSMC 28nm)
+transferred = model.transfer(prediction, sample["stats"], target_technology="TSMC_28nm_TYP")
+print("Transferred PPA:", transferred)
+```
+
+For complete mathematical formulations and schema details, refer to [docs/SOG_PIPELINE.md](docs/SOG_PIPELINE.md).
