@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ from typing import Sequence
 
 def _normalize_path(path: str | Path) -> str:
     """Convert a filesystem path to a form safe for Yosys command-line arguments."""
-    return str(Path(path)).replace("\\", "/").replace("\"", "\\\"")
+    return str(Path(path)).replace("\\", "/").replace('"', '\\"')
 
 
 def detect_top_module(verilog_path: str | Path) -> str:
@@ -22,7 +23,7 @@ def detect_top_module(verilog_path: str | Path) -> str:
         raise FileNotFoundError(f"Verilog design not found: {path}")
 
     text = path.read_text(encoding="utf-8")
-    module_names = re.findall(r"\bmodule\s+([A-Za-z_][A-Za-z0-9_$]*)\s*\(", text, flags=re.MULTILINE)
+    module_names = re.findall(r"\bmodule\s+([A-Za-z_][A-Za-z0-9_$]*)\s*[(;#]", text, flags=re.MULTILINE)
     if not module_names:
         raise ValueError(f"No module declarations found in {path}.")
 
@@ -30,6 +31,61 @@ def detect_top_module(verilog_path: str | Path) -> str:
     if file_stem in module_names:
         return file_stem
     return module_names[0]
+
+
+def find_yosys_binary(yosys_bin: str = "yosys") -> Path:
+    """Discover the Yosys executable across PATH, OSS_CAD_SUITE, and known default locations."""
+    # 1. Direct path check
+    direct_candidate = Path(yosys_bin).expanduser().resolve()
+    if direct_candidate.is_file():
+        return direct_candidate
+
+    # 2. Check system PATH
+    found = shutil.which(yosys_bin)
+    if found:
+        return Path(found).resolve()
+
+    # 3. Check OSS_CAD_SUITE environment variable
+    oss_root = os.environ.get("OSS_CAD_SUITE")
+    if oss_root:
+        bin_dir = Path(oss_root) / "bin"
+        exe_name = "yosys.exe" if os.name == "nt" else "yosys"
+        cand = bin_dir / exe_name
+        if cand.is_file():
+            return cand.resolve()
+
+    # 4. Known default locations on Windows
+    known_paths = [
+        Path(r"D:\oss-cad-suite-windows-x64-20260824\oss-cad-suite-windows-x64-20260824\oss-cad-suite\bin\yosys.exe"),
+        Path(r"C:\oss-cad-suite\bin\yosys.exe"),
+        Path(r"D:\oss-cad-suite\bin\yosys.exe"),
+    ]
+    for kp in known_paths:
+        if kp.is_file():
+            return kp.resolve()
+
+    raise FileNotFoundError(
+        f"Yosys executable '{yosys_bin}' not found in PATH or known locations. "
+        "Install Yosys or set OSS_CAD_SUITE environment variable."
+    )
+
+
+def prepare_yosys_env(yosys_executable: Path) -> dict[str, str]:
+    """Prepare process environment so dependent DLLs and helper binaries (abc, python) are reachable."""
+    env = dict(os.environ)
+    bin_dir = yosys_executable.parent
+    root_dir = bin_dir.parent
+    lib_dir = root_dir / "lib"
+
+    path_additions = [str(bin_dir)]
+    if lib_dir.is_dir():
+        path_additions.append(str(lib_dir))
+
+    current_path = env.get("PATH", "")
+    prefix = ";".join(path_additions) if os.name == "nt" else ":".join(path_additions)
+    delimiter = ";" if os.name == "nt" else ":"
+    env["PATH"] = f"{prefix}{delimiter}{current_path}"
+    return env
 
 
 def build_yosys_script(
@@ -53,6 +109,7 @@ def build_yosys_script(
         "memory -nomap",
         "techmap",
         "abc -g AND,OR,XOR,MUX",
+        "clean",
         f"write_verilog -noattr {_normalize_path(synth_path)}",
         f"write_json {_normalize_path(json_path)}",
     ]
@@ -80,11 +137,8 @@ def run_yosys_synthesis(
     synth_verilog = output_path / f"{source_path.stem}.synth.v"
     json_ast = output_path / f"{source_path.stem}.json"
 
-    yosys_executable = shutil.which(yosys_bin)
-    if yosys_executable is None:
-        raise FileNotFoundError(
-            f"Yosys executable '{yosys_bin}' not found in PATH. Install Yosys or provide --yosys-bin."
-        )
+    yosys_executable = find_yosys_binary(yosys_bin)
+    env = prepare_yosys_env(yosys_executable)
 
     script = build_yosys_script(
         input_path=source_path,
@@ -95,10 +149,11 @@ def run_yosys_synthesis(
     )
 
     completed = subprocess.run(
-        [yosys_executable, "-q", "-p", script],
+        [str(yosys_executable), "-q", "-p", script],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     if completed.returncode != 0:
         stderr = completed.stderr.strip() or completed.stdout.strip() or "Unknown Yosys error"
@@ -128,8 +183,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             top_module=args.top_module,
             yosys_bin=args.yosys_bin,
         )
-    except Exception as exc:  # pragma: no cover - CLI surface
-        print(f"ERROR: {exc}", file=None)
+    except Exception as exc:
+        print(f"ERROR: {exc}")
         return 1
 
     print(f"Top module: {result['top_module']}")
