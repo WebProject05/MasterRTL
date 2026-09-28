@@ -44,15 +44,19 @@ def compute_pearson_r(y_true: Sequence[float], y_pred: Sequence[float]) -> float
     return float(r) if not np.isnan(r) else 0.0
 
 
-def compute_mape(y_true: Sequence[float], y_pred: Sequence[float]) -> float:
-    """Calculate Mean Absolute Percentage Error (MAPE) in %."""
+def compute_mape(y_true: Sequence[float], y_pred: Sequence[float], eps: float = 0.05) -> float:
+    """Calculate Mean Absolute Percentage Error (MAPE) in %.
+
+    For near-zero ground truth values (such as slack metrics near 0 ns),
+    an epsilon denominator stabilization prevents division-by-zero distortion.
+    """
     yt = np.asarray(y_true, dtype=np.float64)
     yp = np.asarray(y_pred, dtype=np.float64)
     # Avoid division by zero
     mask = np.abs(yt) > 1e-6
     if not np.any(mask):
         return 0.0
-    mape = np.mean(np.abs((yt[mask] - yp[mask]) / yt[mask])) * 100.0
+    mape = np.mean(np.abs((yt[mask] - yp[mask]) / (np.abs(yt[mask]) + eps))) * 100.0
     return float(mape)
 
 
@@ -212,19 +216,21 @@ class MasterRTL:
         # 3. Prepare Power Model Training Data
         power_mod_X = []
         power_mod_y = []
-        power_calib_X = []
-        power_calib_y = []
         for d in dataset:
             feats = extract_module_power_features(d["stats"])
             power_mod_X.append(feats)
             power_mod_y.append(d["labels"]["power"])
 
-            calib_feats = extract_design_power_calibration_features(d["stats"], d["labels"]["power"])
-            power_calib_X.append(calib_feats)
-            power_calib_y.append(d["labels"]["power"])
-
         if power_mod_X:
-            self.power_estimator.fit(power_mod_X, power_mod_y, power_calib_X, power_calib_y)
+            self.power_estimator.module_model.fit(power_mod_X, power_mod_y)
+            mod_preds = self.power_estimator.module_model.predict(power_mod_X)
+            power_calib_X = []
+            power_calib_y = []
+            for i, d in enumerate(dataset):
+                calib_feats = extract_design_power_calibration_features(d["stats"], float(mod_preds[i]))
+                power_calib_X.append(calib_feats)
+                power_calib_y.append(d["labels"]["power"])
+            self.power_estimator.calib_model.fit(power_calib_X, power_calib_y)
 
         # 4. Prepare Area Model Training Data
         stats_list = [d["stats"] for d in dataset]

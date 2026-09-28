@@ -142,7 +142,7 @@ def infer_design_timing_paths(
     pred_delays = path_model.predict(feats_list)
     slacks = [clk_period - float(d) for d in pred_delays]
 
-    wns_r = min(slacks)
+    wns_r = min(0.0, min(slacks)) if slacks else 0.0
     tns_r = sum(min(0.0, s) for s in slacks)
 
     # Focus on the worst paths (up to top 1% or worst 20)
@@ -172,21 +172,22 @@ def extract_design_timing_calibration_features(
     stats: dict[str, Any],
     timing_inference: dict[str, Any],
 ) -> list[float]:
-    """Build design-level feature vector for Stage 5 WNS/TNS calibration.
+    """Build design-level feature vector for Stage 5 WNS/TNS calibration."""
+    wns_r = float(timing_inference.get("wns_r", 0.0))
+    tns_r = float(timing_inference.get("tns_r", 0.0))
+    crit_d = float(stats.get("critical_path_delay", 10.0))
+    tot_nodes = float(stats.get("total_nodes", 10))
+    regs = float(stats.get("num_registers", 1))
+    comb_nodes = float(stats.get("num_comb_nodes", 10))
+    slacks = timing_inference.get("pred_path_slacks", [])
+    num_viol = sum(1 for s in slacks if s < 0.0) if slacks else 0
+    viol_ratio = num_viol / max(1, len(slacks)) if slacks else 0.0
 
-    Features:
-    1. SOG graph features reflecting design scale:
-       - total_nodes, total_edges, num_registers, num_comb_nodes
-       - num_and, num_or, num_xor, num_not, num_mux
-       - mean_fanout, max_fanout, density
-    2. Estimated TNS^R and WNS^R from path-level model
-    3. Slack distribution percentiles of top critical paths (worst, p10, p50, p90)
-    """
     return [
-        float(stats.get("total_nodes", 0)),
+        tot_nodes,
         float(stats.get("total_edges", 0)),
-        float(stats.get("num_registers", 0)),
-        float(stats.get("num_comb_nodes", 0)),
+        regs,
+        comb_nodes,
         float(stats.get("num_and", 0)),
         float(stats.get("num_or", 0)),
         float(stats.get("num_xor", 0)),
@@ -195,12 +196,17 @@ def extract_design_timing_calibration_features(
         float(stats.get("mean_fanout", 1.0)),
         float(stats.get("max_fanout", 1.0)),
         float(stats.get("density", 0.0)),
-        float(timing_inference.get("wns_r", 0.0)),
-        float(timing_inference.get("tns_r", 0.0)),
+        abs(wns_r),
+        math.log1p(abs(tns_r)),
         float(timing_inference.get("slack_worst", 0.0)),
         float(timing_inference.get("slack_p10", 0.0)),
         float(timing_inference.get("slack_p50", 0.0)),
         float(timing_inference.get("slack_p90", 0.0)),
+        crit_d,
+        crit_d * 0.035,
+        regs / max(1.0, comb_nodes),
+        float(num_viol),
+        float(viol_ratio),
     ]
 
 
@@ -214,7 +220,7 @@ class DesignLevelTimingCalibrationModel:
         self,
         n_estimators: int = 45,
         max_depth: int = 8,
-        learning_rate: float = 0.1,
+        learning_rate: float = 0.08,
         random_state: int = 42,
     ) -> None:
         self.n_estimators = n_estimators
@@ -228,14 +234,14 @@ class DesignLevelTimingCalibrationModel:
                 max_depth=max_depth,
                 learning_rate=learning_rate,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=1,
             )
             self.model_tns = XGBRegressor(
                 n_estimators=n_estimators,
                 max_depth=max_depth,
                 learning_rate=learning_rate,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=1,
             )
         else:
             self.model_wns = XGBRegressor(
@@ -262,18 +268,41 @@ class DesignLevelTimingCalibrationModel:
         y_wns_arr = np.asarray(y_wns, dtype=np.float32)
         y_tns_arr = np.asarray(y_tns, dtype=np.float32)
 
-        self.model_wns.fit(X_arr, y_wns_arr)
-        self.model_tns.fit(X_arr, y_tns_arr)
+        # Train on log1p of absolute violation magnitude
+        y_wns_log = np.log1p(np.abs(y_wns_arr))
+        y_tns_log = np.log1p(np.abs(y_tns_arr))
+
+        self.model_wns.fit(X_arr, y_wns_log)
+        self.model_tns.fit(X_arr, y_tns_log)
         self.is_fitted = True
         return self
 
     def predict(self, X: np.ndarray | list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
         X_arr = np.asarray(X, dtype=np.float32)
         if not self.is_fitted:
-            # Return uncalibrated path estimates (WNS^R, TNS^R at columns 12, 13)
-            return X_arr[:, 12], X_arr[:, 13]
-        pred_wns = self.model_wns.predict(X_arr)
-        pred_tns = self.model_tns.predict(X_arr)
+            raw_wns = -X_arr[:, 12]
+            raw_tns = -np.expm1(X_arr[:, 13])
+            return raw_wns, raw_tns
+
+        pred_w_log = self.model_wns.predict(X_arr)
+        pred_t_log = self.model_tns.predict(X_arr)
+
+        pred_wns_mag = np.expm1(np.maximum(0.0, pred_w_log))
+        pred_tns_mag = np.expm1(np.maximum(0.0, pred_t_log))
+
+        pred_wns = np.zeros(len(X_arr), dtype=np.float32)
+        pred_tns = np.zeros(len(X_arr), dtype=np.float32)
+
+        for i in range(len(X_arr)):
+            raw_w = X_arr[i, 12] if X_arr.shape[1] > 12 else 1.0
+            crit_proxy = X_arr[i, 19] if X_arr.shape[1] > 19 else 10.0
+            if (X_arr.shape[1] > 12 and raw_w < 1e-4) or crit_proxy < 1.0:
+                pred_wns[i] = 0.0
+                pred_tns[i] = 0.0
+            else:
+                pred_wns[i] = -float(pred_wns_mag[i])
+                pred_tns[i] = -float(pred_tns_mag[i])
+
         return pred_wns, pred_tns
 
 

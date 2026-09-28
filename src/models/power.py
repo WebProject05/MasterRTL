@@ -115,23 +115,26 @@ def extract_design_power_calibration_features(
     stats: dict[str, Any],
     sum_module_power: float,
 ) -> list[float]:
-    """Build design-level feature vector for Stage 3 power calibration.
+    """Build design-level feature vector for Stage 3 power calibration."""
+    tot_nodes = float(stats.get("total_nodes", 0))
+    tot_edges = float(stats.get("total_edges", 0))
+    regs = float(stats.get("num_registers", 0))
+    comb_nodes = float(stats.get("num_comb_nodes", 0))
+    w_toggle = float(stats.get("weighted_toggle_rate", 0.0))
+    dyn_proxy = w_toggle * comb_nodes
+    stat_proxy = comb_nodes * 1.15 + regs * 4.522
 
-    Features:
-    1. Sum of module power predictions
-    2. SOG design-scale features (total nodes, total edges, registers, combinational)
-    3. Global toggle rate statistics
-    4. Operator breakdown
-    """
     return [
         float(sum_module_power),
-        float(stats.get("total_nodes", 0)),
-        float(stats.get("total_edges", 0)),
-        float(stats.get("num_registers", 0)),
-        float(stats.get("num_comb_nodes", 0)),
+        tot_nodes,
+        tot_edges,
+        regs,
+        comb_nodes,
         float(stats.get("total_toggle_rate", 0.0)),
         float(stats.get("mean_toggle_rate", 0.05)),
-        float(stats.get("weighted_toggle_rate", 0.0)),
+        w_toggle,
+        dyn_proxy,
+        stat_proxy,
         float(stats.get("num_and", 0)),
         float(stats.get("num_or", 0)),
         float(stats.get("num_xor", 0)),
@@ -151,8 +154,8 @@ class DesignLevelPowerCalibrationModel:
     def __init__(
         self,
         n_estimators: int = 45,
-        max_depth: int = 8,
-        learning_rate: float = 0.1,
+        max_depth: int = 6,
+        learning_rate: float = 0.08,
         random_state: int = 42,
     ) -> None:
         self.n_estimators = n_estimators
@@ -166,7 +169,7 @@ class DesignLevelPowerCalibrationModel:
                 max_depth=max_depth,
                 learning_rate=learning_rate,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=1,
             )
         else:
             self.model = XGBRegressor(
@@ -184,16 +187,18 @@ class DesignLevelPowerCalibrationModel:
     ) -> DesignLevelPowerCalibrationModel:
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y_power, dtype=np.float32)
-        self.model.fit(X_arr, y_arr)
+        # Train in log-space to directly minimize relative percentage error
+        y_log = np.log(np.maximum(0.001, y_arr))
+        self.model.fit(X_arr, y_log)
         self.is_fitted = True
         return self
 
     def predict(self, X: np.ndarray | list[list[float]]) -> np.ndarray:
         X_arr = np.asarray(X, dtype=np.float32)
         if not self.is_fitted:
-            # Return uncalibrated module sum (column 0)
             return X_arr[:, 0]
-        return self.model.predict(X_arr)
+        pred_log = self.model.predict(X_arr)
+        return np.exp(pred_log)
 
 
 class PowerPPAEstimator:
