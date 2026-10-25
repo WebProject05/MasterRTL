@@ -180,8 +180,14 @@ def extract_design_timing_calibration_features(
     regs = float(stats.get("num_registers", 1))
     comb_nodes = float(stats.get("num_comb_nodes", 10))
     slacks = timing_inference.get("pred_path_slacks", [])
+    num_slacks = max(1.0, float(len(slacks)))
+    scaled_tns = tns_r * (regs / num_slacks)
+    p_worst = float(timing_inference.get("slack_worst", 0.0))
+    p_10 = float(timing_inference.get("slack_p10", 0.0))
+    p_50 = float(timing_inference.get("slack_p50", 0.0))
+    p_90 = float(timing_inference.get("slack_p90", 0.0))
     num_viol = sum(1 for s in slacks if s < 0.0) if slacks else 0
-    viol_ratio = num_viol / max(1, len(slacks)) if slacks else 0.0
+    viol_ratio = num_viol / num_slacks
 
     return [
         tot_nodes,
@@ -194,19 +200,20 @@ def extract_design_timing_calibration_features(
         float(stats.get("num_not", 0)),
         float(stats.get("num_mux", 0)),
         float(stats.get("mean_fanout", 1.0)),
-        float(stats.get("max_fanout", 1.0)),
         float(stats.get("density", 0.0)),
-        abs(wns_r),
-        math.log1p(abs(tns_r)),
-        float(timing_inference.get("slack_worst", 0.0)),
-        float(timing_inference.get("slack_p10", 0.0)),
-        float(timing_inference.get("slack_p50", 0.0)),
-        float(timing_inference.get("slack_p90", 0.0)),
+        wns_r,
+        scaled_tns,
+        p_worst,
+        p_10,
+        p_50,
+        p_90,
         crit_d,
         crit_d * 0.035,
+        regs * wns_r,
+        regs * p_worst,
+        regs * p_50,
+        regs * viol_ratio,
         regs / max(1.0, comb_nodes),
-        float(num_viol),
-        float(viol_ratio),
     ]
 
 
@@ -256,6 +263,9 @@ class DesignLevelTimingCalibrationModel:
                 learning_rate=learning_rate,
                 random_state=random_state,
             )
+
+        from sklearn.linear_model import Ridge
+        self.linear_tns = Ridge(alpha=0.5)
         self.is_fitted = False
 
     def fit(
@@ -268,40 +278,47 @@ class DesignLevelTimingCalibrationModel:
         y_wns_arr = np.asarray(y_wns, dtype=np.float32)
         y_tns_arr = np.asarray(y_tns, dtype=np.float32)
 
-        # Train on log1p of absolute violation magnitude
-        y_wns_log = np.log1p(np.abs(y_wns_arr))
-        y_tns_log = np.log1p(np.abs(y_tns_arr))
+        # 1. Fit WNS directly with XGBoost
+        self.model_wns.fit(X_arr, y_wns_arr)
 
-        self.model_wns.fit(X_arr, y_wns_log)
-        self.model_tns.fit(X_arr, y_tns_log)
+        # 2. Fit TNS with hybrid global scale preservation + non-linear residual refinement
+        tns_proxies = []
+        for i in range(len(X_arr)):
+            regs = X_arr[i, 2] if X_arr.shape[1] > 2 else 1.0
+            wns_val = min(0.0, float(y_wns_arr[i]))
+            proxy = wns_val * regs * 0.45
+            s_tns = X_arr[i, 12] if X_arr.shape[1] > 12 else 0.0
+            r_wns = X_arr[i, 19] if X_arr.shape[1] > 19 else 0.0
+            tns_proxies.append([proxy, s_tns, r_wns, regs])
+
+        self.linear_tns.fit(np.asarray(tns_proxies, dtype=np.float32), y_tns_arr)
+        lin_preds = self.linear_tns.predict(np.asarray(tns_proxies, dtype=np.float32))
+        residuals = y_tns_arr - lin_preds
+        self.model_tns.fit(X_arr, residuals)
+
         self.is_fitted = True
         return self
 
     def predict(self, X: np.ndarray | list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
         X_arr = np.asarray(X, dtype=np.float32)
         if not self.is_fitted:
-            raw_wns = -X_arr[:, 12]
-            raw_tns = -np.expm1(X_arr[:, 13])
+            raw_wns = X_arr[:, 11] if X_arr.shape[1] > 11 else np.zeros(len(X_arr), dtype=np.float32)
+            raw_tns = X_arr[:, 12] if X_arr.shape[1] > 12 else np.zeros(len(X_arr), dtype=np.float32)
             return raw_wns, raw_tns
 
-        pred_w_log = self.model_wns.predict(X_arr)
-        pred_t_log = self.model_tns.predict(X_arr)
+        pred_wns = np.minimum(0.0, self.model_wns.predict(X_arr))
 
-        pred_wns_mag = np.expm1(np.maximum(0.0, pred_w_log))
-        pred_tns_mag = np.expm1(np.maximum(0.0, pred_t_log))
-
-        pred_wns = np.zeros(len(X_arr), dtype=np.float32)
-        pred_tns = np.zeros(len(X_arr), dtype=np.float32)
-
+        tns_proxies = []
         for i in range(len(X_arr)):
-            raw_w = X_arr[i, 12] if X_arr.shape[1] > 12 else 1.0
-            crit_proxy = X_arr[i, 19] if X_arr.shape[1] > 19 else 10.0
-            if (X_arr.shape[1] > 12 and raw_w < 1e-4) or crit_proxy < 1.0:
-                pred_wns[i] = 0.0
-                pred_tns[i] = 0.0
-            else:
-                pred_wns[i] = -float(pred_wns_mag[i])
-                pred_tns[i] = -float(pred_tns_mag[i])
+            regs = X_arr[i, 2] if X_arr.shape[1] > 2 else 1.0
+            proxy = float(pred_wns[i]) * regs * 0.45
+            s_tns = X_arr[i, 12] if X_arr.shape[1] > 12 else 0.0
+            r_wns = X_arr[i, 19] if X_arr.shape[1] > 19 else 0.0
+            tns_proxies.append([proxy, s_tns, r_wns, regs])
+
+        lin_preds = self.linear_tns.predict(np.asarray(tns_proxies, dtype=np.float32))
+        res_preds = self.model_tns.predict(X_arr)
+        pred_tns = np.minimum(0.0, lin_preds + res_preds)
 
         return pred_wns, pred_tns
 

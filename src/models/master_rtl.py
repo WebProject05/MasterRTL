@@ -169,7 +169,8 @@ def load_ppa_dataset(
 class MasterRTL:
     """MasterRTL unified presynthesis PPA estimation framework."""
 
-    def __init__(self) -> None:
+    def __init__(self, representation: str = "sog") -> None:
+        self.representation = representation.lower()
         self.timing_estimator = TimingPPAEstimator()
         self.power_estimator = PowerPPAEstimator()
         self.area_estimator = AreaPPAEstimator()

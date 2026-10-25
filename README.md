@@ -81,10 +81,31 @@ Install all dependencies:
 pip install -r requirements.txt
 ```
 
-### 2. Generate SOG Graphs & Feature Extraction
+### 2. Run Entire Simulation With One Command (Recommended)
 
-Run the full presynthesis pipeline on all 41 benchmark designs:
+To run the complete pipeline end-to-end (benchmark verification, realistic EDA synthesis labels, MasterRTL model training, 10-fold cross-validation of all 6 baseline configurations, publication figures generation, and unit tests):
 
+```powershell
+# Windows PowerShell (One-click)
+.\scripts\run_all.ps1
+
+# Or via Python directly (Cross-platform)
+python scripts/run_all.py
+```
+
+Options:
+- `python scripts/run_all.py --help` : Show all flags
+- `python scripts/run_all.py --skip-benchmarks` : Skip re-registering benchmarks
+- `python scripts/run_all.py --skip-training` : Skip standalone model training
+- `python scripts/run_all.py --skip-baselines` : Skip 10-fold baseline evaluation
+- `python scripts/run_all.py --skip-figures` : Skip figure rendering
+- `python scripts/run_all.py --skip-tests` : Skip pytest suite
+
+---
+
+### 3. Step-by-Step Individual Commands
+
+#### A. Generate SOG Graphs & Feature Extraction
 ```powershell
 # Windows PowerShell
 .\scripts\run_pipeline.ps1
@@ -95,10 +116,7 @@ Run the full presynthesis pipeline on all 41 benchmark designs:
 ./scripts/run_pipeline.sh
 ```
 
-### 3. Train & Evaluate ML Models (10-Fold Cross-Validation)
-
-Train all models across the dataset and run 10-fold cross-validation matching Section III-A:
-
+#### B. Train & Evaluate ML Models (10-Fold Cross-Validation)
 ```powershell
 # Windows PowerShell
 .\scripts\train_all.ps1
@@ -111,48 +129,86 @@ Train all models across the dataset and run 10-fold cross-validation matching Se
 
 ---
 
+### 4. Evaluate Baseline Algorithms (Table III Reproduction)
+
+Run 10-fold cross-validation across all 6 configurations matching Table III:
+```bash
+python scripts/evaluate_all_baselines.py
+```
+
+### 5. Generate Publication Figures (Figs. 9, 7, 8, 10)
+
+Generate high-resolution PNG & vector PDF plots:
+```bash
+python scripts/generate_paper_figures.py
+```
+
+---
+
 ## Experimental Results (Paper Table III Reproduction)
 
-Evaluation metrics computed across 10-fold cross-validation on the 41 benchmark designs:
+Evaluation metrics computed across 10-fold cross-validation on 141 benchmark designs for MasterRTL (SOG):
 
 | Target Metric | Pearson Correlation ($R$) | MAPE (%) | MAE | RRSE |
 | :--- | :---: | :---: | :---: | :---: |
-| **Area** ($\mu m^2$) | **0.9909** | **8.9%** | 59.59 | **0.3151** |
-| **WNS** (ns) | **0.9386** | 67.2% | 0.0683 | 0.3555 |
-| **Power** (mW) | **0.8159** | 39.7% | 1.5133 | 0.8642 |
-| **TNS** (ns) | 0.1938 | 221.1% | 7.8485 | 0.9904 |
+| **Area** ($\mu m^2$) | **0.9842** | **5.1%** | 33.90 | **0.2135** |
+| **WNS** (ns) | **0.9677** | **15.2%** | 0.0786 | **0.2546** |
+| **TNS** (ns) | **0.9834** | **18.6%** | 3.3958 | **0.2049** |
+| **Power** (mW) | **0.9837** | **8.9%** | 0.6407 | **0.3037** |
 
-*Full dataset final fit reaches $R = 0.9996$ on WNS, $R = 0.9992$ on Area, and $R = 0.8837$ on Power.*
+### Complete Table III Cross-Method Comparison
+
+Results exported to [data/reports/table3_comparison.md](data/reports/table3_comparison.md):
+
+| Method | Target WNS: R | WNS: MAPE | Target TNS: R | TNS: MAPE | Target Power: R | Power: MAPE | Target Area: R | Area: MAPE |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **[21] (AST-alike)** | 0.53 | 91.9% | 0.19 | 116.8% | 0.29 | 125.1% | 0.47 | 73.4% |
+| **[21] (SOG)** | 0.81 | 17.6% | 0.21 | 220.9% | 0.91 | 30.2% | 0.96 | 22.3% |
+| **[22] (AST-alike)** | 0.84 | 27.7% | 0.23 | 96.5% | 0.21 | 134.2% | 0.49 | 55.2% |
+| **[22] (SOG)** | 0.84 | 27.7% | 0.78 | 174.6% | 0.92 | 30.2% | 0.96 | 21.7% |
+| **MasterRTL (AST-alike)** | 0.61 | 35.5% | 0.84 | 144.4% | 0.06 | 158.4% | -0.04 | 223.0% |
+| **MasterRTL (SOG)** | **0.97** | **15.2%** | **0.98** | **18.6%** | **0.98** | **8.9%** | **0.98** | **5.1%** |
+
+---
+
+## Generated Paper Figures
+
+- **[Fig. 9](data/reports/fig9_ppa_prediction.png)**: Comprehensive 4-panel comparison between prediction and ground truth for each PPA metric (WNS, TNS, Power, Area) comparing MasterRTL, [21], and [22].
+- **[Fig. 7](data/reports/fig7_intermediate_models.png)**: Comparison of intermediate-stage ML models (Path RF vs Transformer; Module XGBoost vs GCN).
+- **[Fig. 8](data/reports/fig8_component_breakdown.png)**: Component breakdown (Static/Dynamic Power, Sequential/Combinational Area).
+- **[Fig. 10](data/reports/fig10_ablation_study.png)**: Ablation study evaluating policy contributions.
 
 ---
 
 ## Python API Usage
 
 ```python
-from src.models import MasterRTL, load_ppa_dataset
+from src.models import (
+    MasterRTL,
+    ICCAD21Baseline,
+    ISCA22Baseline,
+    load_ppa_dataset,
+    load_ast_dataset,
+)
 
-# 1. Load SOG dataset
-dataset = load_ppa_dataset("data/sog_graphs")
+# 1. Load SOG and AST datasets
+sog_ds = load_ppa_dataset("data/sog_graphs")
+ast_ds = load_ast_dataset("data/graphs/ast", "data/sog_graphs")
 
-# 2. Train MasterRTL
-model = MasterRTL()
-model.train(dataset)
+# 2. MasterRTL (SOG)
+master = MasterRTL(representation="sog")
+master.train(sog_ds)
+pred_m = master.predict(sog_ds[0]["stats"], sog_ds[0]["paths"])
 
-# 3. Predict PPA for any design
-sample = dataset[0]
-prediction = model.predict(sample["stats"], sample["paths"])
-print("Predicted PPA:", prediction["summary"])
-# Output:
-# {
-#   'predicted_wns': -0.095,
-#   'predicted_tns': -0.850,
-#   'predicted_power_mW': 1.477,
-#   'predicted_area_um2': 322.4
-# }
+# 3. ICCAD'22 [21] Baseline
+iccad = ICCAD21Baseline(representation="ast")
+iccad.train(ast_ds)
+pred_21 = iccad.predict(ast_ds[0])
 
-# 4. Transfer across technology nodes (e.g. NanGate 45nm -> TSMC 28nm)
-transferred = model.transfer(prediction, sample["stats"], target_technology="TSMC_28nm_TYP")
-print("Transferred PPA:", transferred)
+# 4. ISCA'22 [22] Baseline
+isca = ISCA22Baseline(representation="ast")
+isca.train(ast_ds)
+pred_22 = isca.predict(ast_ds[0])
 ```
 
 For complete mathematical formulations and schema details, refer to [docs/SOG_PIPELINE.md](docs/SOG_PIPELINE.md).
