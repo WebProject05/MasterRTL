@@ -118,7 +118,7 @@ def compute_realistic_eda_labels(
 def generate_all_eda_labels(
     sog_dir: str | Path = "data/sog_graphs",
     labels_dir: str | Path = "data/ppa_labels",
-    overwrite: bool = True,
+    overwrite: bool = False,
 ) -> int:
     """Generate realistic commercial EDA ground truth labels for all SOG designs."""
     sog_path = Path(sog_dir).expanduser().resolve()

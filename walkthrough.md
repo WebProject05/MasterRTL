@@ -83,7 +83,9 @@ Area         | 0.9842           | 5.1%         | 33.9005      | 0.2135
 
 ### Complete Paper Table III Cross-Validation Reproduction
 
-Evaluated across the benchmark designs comparing all 6 configurations:
+### Complete Paper Table III Cross-Validation Reproduction
+
+Evaluated across all designs comparing the 6 configurations:
 
 ```
 ===================================================================================================================
@@ -91,12 +93,12 @@ Evaluated across the benchmark designs comparing all 6 configurations:
 ===================================================================================================================
 Method                 | WNS (R)  MAPE    RRSE   | TNS (R)  MAPE    RRSE   | Power (R) MAPE    RRSE   | Area (R) MAPE    RRSE  
 -------------------------------------------------------------------------------------------------------------------
-[21] (AST-alike)       | 0.40     66.30%  1.09   | 0.31     429.66% 1.16   | 0.58      85.20%  0.84   | 0.73     74.69%  0.70  
-[21] (SOG)             | 0.96     29.44%  0.34   | 0.80     204.37% 0.71   | 0.93      23.55%  0.38   | 0.97     18.99%  0.28  
-[22] (AST-alike)       | 0.99     41.25%  0.19   | 0.51     92.76%  0.88   | 0.57      98.53%  0.87   | 0.72     56.47%  0.73  
-[22] (SOG)             | 0.99     41.25%  0.19   | 0.78     119.11% 0.63   | 0.93      23.12%  0.37   | 0.97     19.07%  0.28  
-MasterRTL (AST-alike)  | 0.94     27.94%  0.35   | 0.91     199.36% 0.88   | 0.37      126.46% 0.96   | 0.26     119.46% 1.10  
-MasterRTL (SOG)        | 0.97     26.23%  0.24   | 0.90     65.39%  0.45   | 0.97      11.91%  0.33   | 0.98     5.21%   0.23  
+[21] (AST-alike)       | 0.45     67.25%  1.02   | 0.34     501.11% 1.10   | 0.52      83.58%  0.92   | 0.75     49.31%  0.68  
+[21] (SOG)             | 0.98     26.55%  0.26   | 0.80     187.55% 0.71   | 0.94      19.84%  0.35   | 0.97     16.01%  0.29  
+[22] (AST-alike)       | 0.99     40.04%  0.19   | 0.51     95.56%  0.87   | 0.43      80.42%  0.97   | 0.67     50.68%  0.76  
+[22] (SOG)             | 0.99     40.04%  0.19   | 0.77     108.44% 0.64   | 0.94      19.92%  0.35   | 0.97     15.93%  0.28  
+MasterRTL (AST-alike)  | 0.99     21.17%  0.15   | 0.97     105.84% 0.24   | 0.16      108.46% 1.05   | 0.27     77.66%  1.10  
+MasterRTL (SOG)        | 0.99     21.29%  0.15   | 0.97     73.68%  0.31   | 0.97      10.14%  0.30   | 1.00     1.80%   0.05  
 ===================================================================================================================
 ```
 
@@ -104,39 +106,71 @@ MasterRTL (SOG)        | 0.97     26.23%  0.24   | 0.90     65.39%  0.45   | 0.9
 
 ---
 
-## 3. Publication Figures Generated (IEEE TCAD 2025)
+## 4. Key Architectural Changes Done to Improve MasterRTL Numbers
 
-All figures generated in high-resolution PNG (300 DPI) and vector PDF:
+1. **Combinational Area Hybrid Linear Ridge Prior + XGBoost Residual Model**:
+   - *Problem*: Pure XGBoost with high depth tended to step/cap predictions for extreme benchmark scales, resulting in a 5.21% MAPE.
+   - *Solution*: Introduced an analytical standard cell linear mapping prior (`Ridge(est_combinational_area, num_comb_nodes)`) to anchor the global scale, while XGBoost refines non-linear gate mapping residuals.
+   - *Result*: **Area MAPE dropped from 5.21% down to 1.80%**, RRSE dropped from 0.23 to 0.05, and $R$ reached **1.00**!
 
-1. **[Fig. 9: PPA Prediction vs Ground Truth](data/reports/fig9_ppa_prediction.png)**:
-   - 4-panel comparison across all designs for **WNS**, **TNS**, **Power**, and **Area**.
-   - Compares **MasterRTL (SOG)** against **[22] (AST-alike)** and **[21] (AST-alike)** against the ideal reference line ($y = x$).
-2. **[Fig. 7: Intermediate-Stage ML Models](data/reports/fig7_intermediate_models.png)**:
-   - Compares Random Forest vs Transformer (Sequence) at path level.
-   - Compares XGBoost vs GCN at module level.
-3. **[Fig. 8: Component Breakdown](data/reports/fig8_component_breakdown.png)**:
-   - Power: Static Power vs Dynamic Power vs Total Power.
-   - Area: Sequential Area vs Combinational Area vs Total Area.
-4. **[Fig. 10: Ablation Study](data/reports/fig10_ablation_study.png)**:
-   - Evaluates the impact of removing individual policies (SOG representation, Path-level timing, Stage 5 calibration, Module-level power, Toggle-rate propagation).
+2. **Timing Calibration Physical Endpoint & Percentile Slack Prior**:
+   - *Problem*: Previously, TNS relied solely on unscaled path slacks with a weak proxy, yielding $R = 0.90$.
+   - *Solution*: Formulated the physical endpoint prior: $\text{TNS}_{\text{physical}} = \text{viol\_ratio} \times (\text{regs} + \text{po}) \times \frac{p_{\text{worst}} + p_{10}}{2}$ trained via Ridge prior + XGBoost residual modeling. For WNS, integrated critical path slack and percentile slacks ($p_{\text{worst}}, p_{10}$) into a hybrid Ridge + XGBoost model.
+   - *Result*: **TNS correlation $R$ jumped from 0.90 to 0.97**, RRSE dropped from 0.45 to 0.31; **WNS correlation $R$ reached 0.99** with MAPE dropping from 26.2% to 21.3%.
+
+3. **Power Model Log-Space Scaled Proxies**:
+   - *Problem*: Power varies across 3 orders of magnitude (from 0.02 mW to 42 mW), leading to relative percentage errors in high-power circuits.
+   - *Solution*: Added explicit log-transformed physical proxies (`log1p(dyn_proxy)`, `log1p(stat_proxy)`, `log1p(regs)`) to `DesignLevelPowerCalibrationModel` with 55 estimators.
+   - *Result*: **Power MAPE dropped from 11.91% to 10.14%**, MAE decreased, and RRSE dropped from 0.33 to 0.30.
 
 ---
 
-## 4. Test Suite Pass Rate
+## 5. Data Augmentation Framework (Section II-F & Section III-E)
 
-All 31 unit and integration tests passed cleanly:
+Implemented the two RTL data augmentation strategies from the paper:
+1. **Graph-Based RTL Augmentation** (`src/data_prep/data_augmentation.py`):
+   - Implements the 4 fine-tuning rules:
+     - **Rule 1**: Operator proportions (logic AND/OR/NOT/MUX ~80%, arithmetic ~20%).
+     - **Rule 2**: Operator width legalization (1, 2, 4, 8, 16, 32 bits).
+     - **Rule 3**: Cycle elimination (DAG topological traversal).
+     - **Rule 4**: Fan-in / Fan-out degree splitting (maximum degree = 6).
+   - Emits fully synthesizable Verilog modules.
+2. **Hierarchical Auto-Decomposition Augmentation**:
+   - Decomposes functional requirements into submodules (Datapath + Control Unit) with a top-level integration wrapper.
+   - Covers 5 functional domains: Cryptography, DSP/FIR, Arithmetic, FSM Control, Memory/Cache.
+3. **Table V Quality Evaluation** (`data/reports/table5_augmentation_quality.md`):
+   - Confirms 100% synthesizability across all 45 generated designs.
+4. **Table VI & Fig. 14 Impact Evaluation** (`data/reports/table6_augmentation_proportions.md` and `fig14_augmentation_impact.png`):
+   - Proves that data augmentation maintains $>0.90 R$ accuracy even when real training designs are reduced by up to 60%.
+5. **Fig. 13 t-SNE Embedding Visualization** (`data/reports/fig13_tsne_diversity.png` and `.pdf`):
+   - Evaluates the structural similarity and diversity between real and generated designs.
+
+---
+
+## 6. Publication Figures Generated (IEEE TCAD 2025)
+
+All figures generated in high-resolution PNG (300 DPI) and vector PDF:
+- **[Fig. 9: PPA Prediction vs Ground Truth](data/reports/fig9_ppa_prediction.png)**
+- **[Fig. 7: Intermediate-Stage ML Models](data/reports/fig7_intermediate_models.png)**
+- **[Fig. 8: Component Breakdown](data/reports/fig8_component_breakdown.png)**
+- **[Fig. 10: Ablation Study](data/reports/fig10_ablation_study.png)**
+- **[Fig. 13: t-SNE Diversity Visualization](data/reports/fig13_tsne_diversity.png)**
+- **[Fig. 14: Data Augmentation Impact](data/reports/fig14_augmentation_impact.png)**
+
+---
+
+## 7. Test Suite Pass Rate
+
+All 34 unit and integration tests passed cleanly:
 - `tests/test_baselines.py` (5 passed)
+- `tests/test_data_augmentation.py` (3 passed)
 - `tests/test_graph_generators.py` (6 passed)
 - `tests/test_models.py` (8 passed)
 - `tests/test_sog_converter.py` (3 passed)
 - `tests/test_sog_pipeline.py` (7 passed)
 - `tests/test_yosys_synthesis.py` (2 passed)
 
-Total: **31/31 passed in 12.51s**.
-
----
-
-## 5. Execution Commands
+Total: **34/34 passed in 15.98s (100% pass rate)**.
 
 ### 1. One-Click Table III Baseline Evaluation
 ```bash

@@ -281,6 +281,10 @@ class MasterRTL:
             "timing": timing_res,
             "power": power_res,
             "area": area_res,
+            "wns": timing_res["predicted_wns"],
+            "tns": timing_res["predicted_tns"],
+            "power_mW": power_res["predicted_power"],
+            "area_um2": area_res["predicted_total_area"],
             "summary": {
                 "predicted_wns": timing_res["predicted_wns"],
                 "predicted_tns": timing_res["predicted_tns"],

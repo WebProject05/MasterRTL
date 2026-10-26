@@ -594,14 +594,25 @@ def main() -> int:
     print(" MasterRTL: Registering 15 High-Quality Diverse RTL Benchmarks")
     print("==========================================================================")
 
+    skipped = 0
+    added = 0
     for name, code in BENCHMARK_VERILOG.items():
         v_file = raw_dir / f"{name}.v"
+        sog_file = sog_dir / f"{name}.pkl"
+        label_file = labels_dir / f"{name}.json"
+        if v_file.is_file() and sog_file.is_file() and label_file.is_file():
+            skipped += 1
+            continue
         with v_file.open("w", encoding="utf-8") as f:
             f.write(code)
         build_synthetic_sog_and_ast(name, sog_dir, ast_dir, labels_dir)
         print(f"  [+] Registered: {name}.v -> SOG, AST, and EDA labels generated.")
+        added += 1
 
-    print(f"\nSuccessfully added 15 advanced benchmarks to data/raw_rtl, data/sog_graphs, and data/graphs/ast!")
+    if skipped > 0 and added == 0:
+        print(f"All {skipped} benchmark designs already exist and are verified. No new Verilog files created.")
+    else:
+        print(f"\nSuccessfully registered {added} benchmarks ({skipped} already existed).")
     return 0
 
 

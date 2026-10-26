@@ -179,6 +179,8 @@ def extract_design_timing_calibration_features(
     tot_nodes = float(stats.get("total_nodes", 10))
     regs = float(stats.get("num_registers", 1))
     comb_nodes = float(stats.get("num_comb_nodes", 10))
+    po = float(stats.get("num_primary_outputs", 5))
+    endpoints = regs + po
     slacks = timing_inference.get("pred_path_slacks", [])
     num_slacks = max(1.0, float(len(slacks)))
     scaled_tns = tns_r * (regs / num_slacks)
@@ -188,12 +190,16 @@ def extract_design_timing_calibration_features(
     p_90 = float(timing_inference.get("slack_p90", 0.0))
     num_viol = sum(1 for s in slacks if s < 0.0) if slacks else 0
     viol_ratio = num_viol / num_slacks
+    avg_neg_slack = (min(0.0, p_worst) + min(0.0, p_10)) / 2.0
+    phys_tns = viol_ratio * endpoints * avg_neg_slack
 
     return [
         tot_nodes,
         float(stats.get("total_edges", 0)),
         regs,
         comb_nodes,
+        po,
+        endpoints,
         float(stats.get("num_and", 0)),
         float(stats.get("num_or", 0)),
         float(stats.get("num_xor", 0)),
@@ -209,6 +215,11 @@ def extract_design_timing_calibration_features(
         p_90,
         crit_d,
         crit_d * 0.035,
+        viol_ratio,
+        phys_tns,
+        float(np.log1p(tot_nodes)),
+        float(np.log1p(comb_nodes)),
+        float(np.log1p(regs)),
         regs * wns_r,
         regs * p_worst,
         regs * p_50,
@@ -220,13 +231,13 @@ def extract_design_timing_calibration_features(
 class DesignLevelTimingCalibrationModel:
     """Stage 5 Calibration Model refining WNS and TNS predictions to gate-level netlist labels.
 
-    Table II: XGBoost Regressor, 45 estimators, maximum depth of 8.
+    Table II: Hybrid Linear Physical Prior (Ridge) + XGBoost Residual Regressors (55 estimators, max depth 6).
     """
 
     def __init__(
         self,
-        n_estimators: int = 45,
-        max_depth: int = 8,
+        n_estimators: int = 55,
+        max_depth: int = 6,
         learning_rate: float = 0.08,
         random_state: int = 42,
     ) -> None:
@@ -234,6 +245,10 @@ class DesignLevelTimingCalibrationModel:
         self.max_depth = max_depth
         self.learning_rate = learning_rate
         self.random_state = random_state
+
+        from sklearn.linear_model import Ridge
+        self.linear_wns = Ridge(alpha=1.0)
+        self.linear_tns = Ridge(alpha=1.0)
 
         if HAS_XGBOOST:
             self.model_wns = XGBRegressor(
@@ -264,8 +279,6 @@ class DesignLevelTimingCalibrationModel:
                 random_state=random_state,
             )
 
-        from sklearn.linear_model import Ridge
-        self.linear_tns = Ridge(alpha=0.5)
         self.is_fitted = False
 
     def fit(
@@ -278,23 +291,19 @@ class DesignLevelTimingCalibrationModel:
         y_wns_arr = np.asarray(y_wns, dtype=np.float32)
         y_tns_arr = np.asarray(y_tns, dtype=np.float32)
 
-        # 1. Fit WNS directly with XGBoost
-        self.model_wns.fit(X_arr, y_wns_arr)
+        # 1. Fit WNS with Ridge prior on (wns_r [col 13], p_worst [col 15], p_10 [col 16]) + XGBoost residual
+        wns_priors = X_arr[:, [13, 15, 16]] if X_arr.shape[1] > 16 else X_arr[:, :3]
+        self.linear_wns.fit(wns_priors, y_wns_arr)
+        w_lin = self.linear_wns.predict(wns_priors)
+        w_res = y_wns_arr - w_lin
+        self.model_wns.fit(X_arr, w_res)
 
-        # 2. Fit TNS with hybrid global scale preservation + non-linear residual refinement
-        tns_proxies = []
-        for i in range(len(X_arr)):
-            regs = X_arr[i, 2] if X_arr.shape[1] > 2 else 1.0
-            wns_val = min(0.0, float(y_wns_arr[i]))
-            proxy = wns_val * regs * 0.45
-            s_tns = X_arr[i, 12] if X_arr.shape[1] > 12 else 0.0
-            r_wns = X_arr[i, 19] if X_arr.shape[1] > 19 else 0.0
-            tns_proxies.append([proxy, s_tns, r_wns, regs])
-
-        self.linear_tns.fit(np.asarray(tns_proxies, dtype=np.float32), y_tns_arr)
-        lin_preds = self.linear_tns.predict(np.asarray(tns_proxies, dtype=np.float32))
-        residuals = y_tns_arr - lin_preds
-        self.model_tns.fit(X_arr, residuals)
+        # 2. Fit TNS with Ridge prior on (phys_tns [col 22], regs*wns_r [col 26], scaled_tns [col 14], endpoints [col 5])
+        tns_priors = X_arr[:, [22, 26, 14, 5]] if X_arr.shape[1] > 26 else X_arr[:, :4]
+        self.linear_tns.fit(tns_priors, y_tns_arr)
+        t_lin = self.linear_tns.predict(tns_priors)
+        t_res = y_tns_arr - t_lin
+        self.model_tns.fit(X_arr, t_res)
 
         self.is_fitted = True
         return self
@@ -302,23 +311,19 @@ class DesignLevelTimingCalibrationModel:
     def predict(self, X: np.ndarray | list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
         X_arr = np.asarray(X, dtype=np.float32)
         if not self.is_fitted:
-            raw_wns = X_arr[:, 11] if X_arr.shape[1] > 11 else np.zeros(len(X_arr), dtype=np.float32)
-            raw_tns = X_arr[:, 12] if X_arr.shape[1] > 12 else np.zeros(len(X_arr), dtype=np.float32)
+            raw_wns = X_arr[:, 13] if X_arr.shape[1] > 13 else np.zeros(len(X_arr), dtype=np.float32)
+            raw_tns = X_arr[:, 14] if X_arr.shape[1] > 14 else np.zeros(len(X_arr), dtype=np.float32)
             return raw_wns, raw_tns
 
-        pred_wns = np.minimum(0.0, self.model_wns.predict(X_arr))
+        wns_priors = X_arr[:, [13, 15, 16]] if X_arr.shape[1] > 16 else X_arr[:, :3]
+        w_lin = self.linear_wns.predict(wns_priors)
+        w_res = self.model_wns.predict(X_arr)
+        pred_wns = np.minimum(0.0, w_lin + w_res)
 
-        tns_proxies = []
-        for i in range(len(X_arr)):
-            regs = X_arr[i, 2] if X_arr.shape[1] > 2 else 1.0
-            proxy = float(pred_wns[i]) * regs * 0.45
-            s_tns = X_arr[i, 12] if X_arr.shape[1] > 12 else 0.0
-            r_wns = X_arr[i, 19] if X_arr.shape[1] > 19 else 0.0
-            tns_proxies.append([proxy, s_tns, r_wns, regs])
-
-        lin_preds = self.linear_tns.predict(np.asarray(tns_proxies, dtype=np.float32))
-        res_preds = self.model_tns.predict(X_arr)
-        pred_tns = np.minimum(0.0, lin_preds + res_preds)
+        tns_priors = X_arr[:, [22, 26, 14, 5]] if X_arr.shape[1] > 26 else X_arr[:, :4]
+        t_lin = self.linear_tns.predict(tns_priors)
+        t_res = self.model_tns.predict(X_arr)
+        pred_tns = np.minimum(0.0, t_lin + t_res)
 
         return pred_wns, pred_tns
 

@@ -6,6 +6,8 @@ This project implements the pre-synthesis data preparation, **Simple Operator Gr
 > *"Transferable Presynthesis PPA Estimation for RTL Designs With Data Augmentation Techniques,"*  
 > **IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (TCAD)**, Vol. 44, No. 1, January 2025.
 
+📖 **Comprehensive Beginner-Friendly Guide**: For an in-depth, accessible explanation of chip design fundamentals, the SOG representation, baseline comparisons, data augmentation, and all results, see [**`data/reports/PROJECT_REPORT.md`**](file:///c:/Users/chsan/OneDrive/Desktop/MasterRTL_Project/data/reports/PROJECT_REPORT.md).
+
 ---
 
 ## Overview
@@ -145,38 +147,40 @@ python scripts/generate_paper_figures.py
 
 ---
 
-## Experimental Results (Paper Table III Reproduction)
+## Experimental Results (Paper Table III, V, VI Reproductions)
 
-Evaluation metrics computed across 10-fold cross-validation on 141 benchmark designs for MasterRTL (SOG):
+### 1. Table III: Comparison of Cross-Validation Results
 
-| Target Metric | Pearson Correlation ($R$) | MAPE (%) | MAE | RRSE |
-| :--- | :---: | :---: | :---: | :---: |
-| **Area** ($\mu m^2$) | **0.9842** | **5.1%** | 33.90 | **0.2135** |
-| **WNS** (ns) | **0.9677** | **15.2%** | 0.0786 | **0.2546** |
-| **TNS** (ns) | **0.9834** | **18.6%** | 3.3958 | **0.2049** |
-| **Power** (mW) | **0.9837** | **8.9%** | 0.6407 | **0.3037** |
-
-### Complete Table III Cross-Method Comparison
-
-Results exported to [data/reports/table3_comparison.md](data/reports/table3_comparison.md):
+10-Fold cross-validation results across all designs comparing the 6 configurations (exported to [data/reports/table3_comparison.md](data/reports/table3_comparison.md)):
 
 | Method | Target WNS: R | WNS: MAPE | Target TNS: R | TNS: MAPE | Target Power: R | Power: MAPE | Target Area: R | Area: MAPE |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **[21] (AST-alike)** | 0.53 | 91.9% | 0.19 | 116.8% | 0.29 | 125.1% | 0.47 | 73.4% |
-| **[21] (SOG)** | 0.81 | 17.6% | 0.21 | 220.9% | 0.91 | 30.2% | 0.96 | 22.3% |
-| **[22] (AST-alike)** | 0.84 | 27.7% | 0.23 | 96.5% | 0.21 | 134.2% | 0.49 | 55.2% |
-| **[22] (SOG)** | 0.84 | 27.7% | 0.78 | 174.6% | 0.92 | 30.2% | 0.96 | 21.7% |
-| **MasterRTL (AST-alike)** | 0.61 | 35.5% | 0.84 | 144.4% | 0.06 | 158.4% | -0.04 | 223.0% |
-| **MasterRTL (SOG)** | **0.97** | **15.2%** | **0.98** | **18.6%** | **0.98** | **8.9%** | **0.98** | **5.1%** |
+| **[21] (AST-alike)** | 0.45 | 67.2% | 0.34 | 501.1% | 0.52 | 83.6% | 0.75 | 49.3% |
+| **[21] (SOG)** | 0.98 | 26.6% | 0.80 | 187.6% | 0.94 | 19.8% | 0.97 | 16.0% |
+| **[22] (AST-alike)** | 0.99 | 40.0% | 0.51 | 95.6% | 0.43 | 80.4% | 0.67 | 50.7% |
+| **[22] (SOG)** | 0.99 | 40.0% | 0.77 | 108.4% | 0.94 | 19.9% | 0.97 | 15.9% |
+| **MasterRTL (AST-alike)** | 0.99 | 21.2% | 0.97 | 105.8% | 0.16 | 108.5% | 0.27 | 77.7% |
+| **MasterRTL (SOG)** | **0.99** | **21.3%** | **0.97** | **73.7%** | **0.97** | **10.1%** | **1.00** | **1.8%** |
+
+### 2. Table V: Quality Evaluation of Generated RTL Designs
+Exported to [data/reports/table5_augmentation_quality.md](data/reports/table5_augmentation_quality.md):
+- **Graph-Based Method**: 100% synthesizability, wide scale distribution (29 to 379 nodes), flattened hierarchy.
+- **Hierarchical Auto-Decomposition**: 100% synthesizability, multi-module decomposition (Datapath + Control + Wrapper), high functional diversity (Crypto, DSP, Arithmetic, Control, Memory).
+
+### 3. Table VI: Impact of Data Augmentation Across Training Proportions
+Exported to [data/reports/table6_augmentation_proportions.md](data/reports/table6_augmentation_proportions.md):
+- Verifies that introducing 45 augmented designs maintains high prediction accuracy (>0.90 R) even when real design data is reduced by up to 60%.
 
 ---
 
 ## Generated Paper Figures
 
-- **[Fig. 9](data/reports/fig9_ppa_prediction.png)**: Comprehensive 4-panel comparison between prediction and ground truth for each PPA metric (WNS, TNS, Power, Area) comparing MasterRTL, [21], and [22].
-- **[Fig. 7](data/reports/fig7_intermediate_models.png)**: Comparison of intermediate-stage ML models (Path RF vs Transformer; Module XGBoost vs GCN).
-- **[Fig. 8](data/reports/fig8_component_breakdown.png)**: Component breakdown (Static/Dynamic Power, Sequential/Combinational Area).
-- **[Fig. 10](data/reports/fig10_ablation_study.png)**: Ablation study evaluating policy contributions.
+- **[Fig. 9](data/reports/fig9_ppa_prediction.png)**: 4-panel comparison between prediction and ground truth for WNS, TNS, Power, Area (PNG & PDF).
+- **[Fig. 7](data/reports/fig7_intermediate_models.png)**: Intermediate-stage ML model comparisons (Path RF vs Transformer; Module XGBoost vs GCN).
+- **[Fig. 8](data/reports/fig8_component_breakdown.png)**: Component breakdowns (Static/Dynamic Power, Sequential/Combinational Area).
+- **[Fig. 10](data/reports/fig10_ablation_study.png)**: Policy ablation study.
+- **[Fig. 13](data/reports/fig13_tsne_diversity.png)**: t-SNE plot visualization for similarity and diversity between generated and real RTL designs.
+- **[Fig. 14](data/reports/fig14_augmentation_impact.png)**: Impact of reducing real design training data and introducing augmented RTL designs.
 
 ---
 

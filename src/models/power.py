@@ -135,6 +135,9 @@ def extract_design_power_calibration_features(
         w_toggle,
         dyn_proxy,
         stat_proxy,
+        float(np.log1p(dyn_proxy)),
+        float(np.log1p(stat_proxy)),
+        float(np.log1p(regs)),
         float(stats.get("num_and", 0)),
         float(stats.get("num_or", 0)),
         float(stats.get("num_xor", 0)),
@@ -148,12 +151,12 @@ def extract_design_power_calibration_features(
 class DesignLevelPowerCalibrationModel:
     """Stage 3 Power Calibration Model refining summed module power to gate-level netlist power.
 
-    Table II: XGBoost Regressor, 45 estimators, maximum depth of 8.
+    Table II: XGBoost Regressor, 55 estimators, maximum depth of 6, operating in log-space.
     """
 
     def __init__(
         self,
-        n_estimators: int = 45,
+        n_estimators: int = 55,
         max_depth: int = 6,
         learning_rate: float = 0.08,
         random_state: int = 42,
