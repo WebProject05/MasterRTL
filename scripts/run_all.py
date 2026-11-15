@@ -106,7 +106,7 @@ def main() -> int:
 
     # Step 1: Ensure benchmark designs and representations exist
     if not args.skip_benchmarks:
-        print_banner("Step 1/7: Verifying & Registering Diverse Hardware RTL Benchmarks")
+        print_banner("Step 1/8: Verifying & Registering Diverse Hardware RTL Benchmarks")
         t = run_step(
             "Benchmark Registration (Verilog -> SOG, AST, Labels)",
             [py, str(PROJECT_ROOT / "scripts" / "add_diverse_benchmarks.py")],
@@ -114,7 +114,7 @@ def main() -> int:
         step_times["Benchmarks"] = t
 
     # Step 2: Realistic EDA Ground Truth Verification
-    print_banner("Step 2/7: Verifying Realistic NanGate 45nm Synthesis Labels")
+    print_banner("Step 2/8: Verifying Realistic NanGate 45nm Synthesis Labels")
     t = run_step(
         "EDA Label Synthesis Engine",
         [py, "-m", "src.data_prep.generate_eda_labels"],
@@ -123,7 +123,7 @@ def main() -> int:
 
     # Step 3: Train MasterRTL Core Models
     if not args.skip_training:
-        print_banner("Step 3/7: Training MasterRTL Core Models & Saving Checkpoint")
+        print_banner("Step 3/8: Training MasterRTL Core Models & Saving Checkpoint")
         t = run_step(
             "MasterRTL Model Checkpoint Training",
             [py, str(PROJECT_ROOT / "scripts" / "train_all.py")],
@@ -132,7 +132,7 @@ def main() -> int:
 
     # Step 4: 10-Fold Cross-Validation Comparison on all 6 Configurations (Table III)
     if not args.skip_baselines:
-        print_banner("Step 4/7: Evaluating All Presynthesis Baselines (Table III: 10-Fold CV)")
+        print_banner("Step 4/8: Evaluating All Presynthesis Baselines (Table III: 10-Fold CV)")
         t = run_step(
             "10-Fold CV Evaluation ([21] AST/SOG, [22] AST/SOG, MasterRTL AST/SOG)",
             [py, str(PROJECT_ROOT / "scripts" / "evaluate_all_baselines.py")],
@@ -140,7 +140,7 @@ def main() -> int:
         step_times["Baselines (Table III)"] = t
 
     # Step 5: Data Augmentation & Evaluation Suite (Table V, Table VI, Fig. 13, Fig. 14)
-    print_banner("Step 5/7: Executing Data Augmentation Engine & Evaluation (Sec. II-F, III-E)")
+    print_banner("Step 5/8: Executing Data Augmentation Engine & Evaluation (Sec. II-F, III-E)")
     t = run_step(
         "Data Augmentation (Table V, Table VI, Fig 13 t-SNE, Fig 14 Impact)",
         [py, str(PROJECT_ROOT / "scripts" / "evaluate_augmentation.py")],
@@ -149,7 +149,7 @@ def main() -> int:
 
     # Step 6: Publication Figures Generation (Figs. 7, 8, 9, 10)
     if not args.skip_figures:
-        print_banner("Step 6/7: Generating Publication Paper Figures (Figs. 7, 8, 9, 10)")
+        print_banner("Step 6/8: Generating Publication Paper Figures (Figs. 7, 8, 9, 10)")
         t = run_step(
             "Paper Figures Generation (PDF & PNG 300 DPI)",
             [py, str(PROJECT_ROOT / "scripts" / "generate_paper_figures.py")],
@@ -158,12 +158,20 @@ def main() -> int:
 
     # Step 7: Pytest Suite Execution
     if not args.skip_tests:
-        print_banner("Step 7/7: Running Full Pytest Test Suite")
+        print_banner("Step 7/8: Running Full Pytest Test Suite")
         t = run_step(
             "Pytest Validation (Unit & Integration Tests)",
             [py, "-m", "pytest", "-v"],
         )
         step_times["Pytest Suite"] = t
+
+    # Step 8: Interactive Presentation Dashboard Generation
+    print_banner("Step 8/8: Generating Interactive Presentation HTML Dashboard")
+    t = run_step(
+        "Interactive Dashboard (data/reports/dashboard.html)",
+        [py, str(PROJECT_ROOT / "scripts" / "generate_html_dashboard.py")],
+    )
+    step_times["HTML Dashboard"] = t
 
     total_elapsed = time.perf_counter() - total_start
 
@@ -174,6 +182,7 @@ def main() -> int:
         print(f"  - {step_name:<25}: {dur:.2f}s ({dur/total_elapsed*100:.1f}%)")
 
     print("\nGenerated Reports & Publications:")
+    print("  [Interactive Dashboard]: data/reports/dashboard.html  <-- Open in Chrome/Edge!")
     print("  [Table III Comparison] : data/reports/table3_comparison.md")
     print("  [Table III CSV]        : data/reports/table3_comparison.csv")
     print("  [Table III JSON]       : data/reports/table3_comparison.json")

@@ -184,6 +184,62 @@ Exported to [data/reports/table6_augmentation_proportions.md](data/reports/table
 
 ---
 
+## 🚀 Instant PPA Prediction on Any Verilog File (CLI)
+
+You can pass any synthesizable Verilog (`.v` or `.sv`) file to `scripts/predict.py` to get instant presynthesis PPA estimates in **under 1 second**:
+
+```powershell
+# 1. Predict PPA for any single Verilog file
+.\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v
+
+# 2. Predict PPA and generate a visual 4-panel dashboard (.png and .pdf)
+.\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --plot
+
+# 3. Predict with Technology Transfer (e.g., TSMC 28nm)
+.\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --transfer TSMC_28nm_TYP --plot
+
+# 4. Predict for an entire folder of designs
+.\.venv\Scripts\python.exe scripts/predict.py data/raw_rtl/
+
+# 5. Output machine-readable JSON (for CI/CD pipelines)
+.\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --json
+```
+
+**Example Output:**
+```text
+================================================================================
+ MasterRTL: Pre-Synthesis PPA Estimation Report
+================================================================================
+ Design File        : adder_ripple_8bit.v
+ Top Module         : adder_ripple_8bit
+ Inference Latency  : 1.180 seconds (Skipped full commercial EDA run!)
+--------------------------------------------------------------------------------
+ 1. CIRCUIT STRUCTURAL COMPLEXITY (SOG Graph)
+--------------------------------------------------------------------------------
+  * Total Graph Nodes  :       95
+  * Register Bits (DFF):       26  (Sequential State)
+  * Comb Gates (1-bit) :       50  (AND/OR/XOR/NOT/MUX)
+  * Critical Path Depth:    34.40  (Topological Delay Units)
+  * Mean Toggle Rate   :    0.076  (Switching Probability)
+--------------------------------------------------------------------------------
+ 2. PREDICTED PPA METRICS (NanGate 45nm Typical Corner, 1.0 GHz / 1.0 ns Target)
+--------------------------------------------------------------------------------
+  [AREA]
+    - Total Silicon Area   :     177.87 um^2
+    - Sequential Cell Area :     117.57 um^2 (26 DFFs @ 4.522 um^2)
+    - Combinational Area   :      60.30 um^2
+
+  [TIMING / PERFORMANCE]
+    - WNS (Worst Slack)    :     -0.187 ns   --> Timing VIOLATED by 0.187 ns
+    - TNS (Total Slack)    :     -1.135 ns   --> Cumulative Endpoint Slack
+
+  [POWER CONSUMPTION]
+    - Total Power          :      0.754 mW
+================================================================================
+```
+
+---
+
 ## Python API Usage
 
 ```python

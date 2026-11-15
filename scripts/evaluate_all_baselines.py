@@ -203,29 +203,30 @@ def main() -> int:
         })
 
     # Print Formatted Table III
-    print("\n" + "=" * 115)
-    print(" TABLE III: COMPARISON OF EVALUATION RESULTS FOR WNS, TNS, TOTAL POWER, AND TOTAL AREA")
-    print("=" * 115)
-    header = (
-        f"{'Method':<22} | "
-        f"{'WNS (R)':<8} {'MAPE':<7} {'RRSE':<6} | "
-        f"{'TNS (R)':<8} {'MAPE':<7} {'RRSE':<6} | "
-        f"{'Power (R)':<9} {'MAPE':<7} {'RRSE':<6} | "
-        f"{'Area (R)':<8} {'MAPE':<7} {'RRSE':<6}"
-    )
-    print(header)
-    print("-" * 115)
+    try:
+        b = {"tl": "┌", "tr": "┐", "bl": "└", "br": "┘", "h": "─", "v": "│", "ml": "├", "mr": "┤", "tm": "┬", "bm": "┴", "mm": "┼"}
+        if not (sys.stdout.encoding and "utf" in sys.stdout.encoding.lower()):
+            b = {"tl": "+", "tr": "+", "bl": "+", "br": "+", "h": "-", "v": "|", "ml": "+", "mr": "+", "tm": "+", "bm": "+", "mm": "+"}
+    except Exception:
+        b = {"tl": "+", "tr": "+", "bl": "+", "br": "+", "h": "-", "v": "|", "ml": "+", "mr": "+", "tm": "+", "bm": "+", "mm": "+"}
+
+    w_m, w_c = 22, 12
+    l_top = f"  {b['tl']}{b['h'] * (w_m + 2)}{b['tm']}{((b['h'] * (w_c + 2)) + b['tm']) * 3}{b['h'] * (w_c + 2)}{b['tr']}"
+    l_mid = f"  {b['ml']}{b['h'] * (w_m + 2)}{b['mm']}{((b['h'] * (w_c + 2)) + b['mm']) * 3}{b['h'] * (w_c + 2)}{b['mr']}"
+    l_bot = f"  {b['bl']}{b['h'] * (w_m + 2)}{b['bm']}{((b['h'] * (w_c + 2)) + b['bm']) * 3}{b['h'] * (w_c + 2)}{b['br']}"
+
+    print("\n  TABLE III: Baseline Comparison (10-Fold Cross-Validation, 201 Designs)")
+    print(l_top)
+    print(f"  {b['v']} {'Method':<{w_m}} {b['v']} {'WNS (R|MAPE)':<{w_c}} {b['v']} {'TNS (R|MAPE)':<{w_c}} {b['v']} {'Pwr (R|MAPE)':<{w_c}} {b['v']} {'Area (R|MAPE)':<{w_c}} {b['v']}")
+    print(l_mid)
 
     for row in results_table:
-        line = (
-            f"{row['Method']:<22} | "
-            f"{row['WNS_R']:<8.2f} {str(row['WNS_MAPE']) + '%':<7} {row['WNS_RRSE']:<6.2f} | "
-            f"{row['TNS_R']:<8.2f} {str(row['TNS_MAPE']) + '%':<7} {row['TNS_RRSE']:<6.2f} | "
-            f"{row['Power_R']:<9.2f} {str(row['Power_MAPE']) + '%':<7} {row['Power_RRSE']:<6.2f} | "
-            f"{row['Area_R']:<8.2f} {str(row['Area_MAPE']) + '%':<7} {row['Area_RRSE']:<6.2f}"
-        )
-        print(line)
-    print("=" * 115 + "\n")
+        wns_cell = f"{row['WNS_R']:.2f} | {row['WNS_MAPE']:>4.1f}%"
+        tns_cell = f"{row['TNS_R']:.2f} | {row['TNS_MAPE']:>4.1f}%"
+        pwr_cell = f"{row['Power_R']:.2f} | {row['Power_MAPE']:>4.1f}%"
+        area_cell = f"{row['Area_R']:.2f} | {row['Area_MAPE']:>4.1f}%"
+        print(f"  {b['v']} {row['Method']:<{w_m}} {b['v']} {wns_cell:<{w_c}} {b['v']} {tns_cell:<{w_c}} {b['v']} {pwr_cell:<{w_c}} {b['v']} {area_cell:<{w_c}} {b['v']}")
+    print(l_bot + "\n")
 
     # Export to Markdown
     md_file = out_path / "table3_comparison.md"
