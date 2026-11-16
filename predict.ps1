@@ -1,17 +1,15 @@
-param(
-    [Parameter(Mandatory=$true, Position=0)]
-    [string]$VerilogPath,
-    [switch]$Plot,
-    [string]$Transfer
-)
+# MasterRTL Fast Prediction Launcher (PowerShell)
+$ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
+$VenvPy = Join-Path $ScriptDir ".venv\Scripts\python.exe"
 
-$py = ".\.venv\Scripts\python.exe"
-if (-not (Test-Path $py)) {
-    $py = "python"
+if (-not (Test-Path $VenvPy)) {
+    $VenvPy = "python"
 }
 
-$argsList = @("scripts/predict.py", $VerilogPath)
-if ($Plot) { $argsList += "--plot" }
-if ($Transfer) { $argsList += @("--transfer", $Transfer) }
+if ($args.Count -eq 0) {
+    Write-Host "MasterRTL Fast Inference Launcher"
+    Write-Host "Usage: .\predict.ps1 path\to\design.v [--plot] [--transfer TSMC_28nm_TYP]"
+    exit 1
+}
 
-& $py @argsList
+& $VenvPy (Join-Path $ScriptDir "scripts\predict.py") @args

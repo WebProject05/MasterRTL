@@ -240,6 +240,54 @@ You can pass any synthesizable Verilog (`.v` or `.sv`) file to `scripts/predict.
 
 ---
 
+## 🛠️ Interactive EDA Tool Suite
+
+To provide a seamless experience matching commercial IC design environments (`dc_shell`, `pt_shell`, `genus`), MasterRTL includes an interactive EDA Command Shell and a zero-dependency Web Studio GUI:
+
+### 1. Interactive EDA Command Shell (`master_rtl>`)
+Launch the interactive chip design REPL with one click:
+```powershell
+# Windows PowerShell
+.\eda_shell.ps1
+
+# Or Windows Command Prompt / Linux
+.\eda_shell.bat
+python scripts/master_rtl_shell.py
+```
+
+**Supported EDA Shell Commands:**
+| Command | Description |
+| :--- | :--- |
+| `read_verilog <file.v>` | Synthesizes and elaborates design into SOG bit-level graph in ~1 sec. |
+| `report_ppa [-plot]` | Prints complete unified PPA scorecard (with optional 4-panel visual plot). |
+| `report_timing` | Static Timing Analysis (STA): WNS, TNS, critical path delay, endpoint count. |
+| `report_area` | Standard-cell area breakdown: Sequential DFF area vs Combinational gate area. |
+| `report_power` | Toggle-activity dynamic switching power vs static leakage dissipation. |
+| `set_target_technology <node>` | Switch foundry process node (`TSMC_28nm_TYP`, `TSMC_28nm_MIN`, etc.). |
+| `set_clock_period <ns>` | Dynamically update target clock period (e.g. `0.8` for 1.25 GHz). |
+| `plot_ppa [-output <dir>]` | Exports publication-quality 300-DPI PNG and vector PDF PPA dashboard. |
+| `list_designs [filter]` | Lists benchmark Verilog files in `data/raw_rtl/`. |
+| `gui` | Spawns the Web EDA Studio and opens it in your default browser. |
+
+### 2. Interactive Web EDA Studio (`http://localhost:8080`)
+A local, zero-dependency browser workbench with real-time gauges, Verilog code editor, and live PPA telemetry:
+```powershell
+# Windows PowerShell
+.\eda_gui.ps1
+
+# Or Windows Command Prompt / Linux
+.\eda_gui.bat
+python scripts/eda_gui.py
+```
+Open **[http://localhost:8080](http://localhost:8080)** in any modern browser to:
+- Pick from 156+ pre-synthesized benchmark RTL designs or paste custom Verilog.
+- Trigger instant 1-second presynthesis PPA estimation.
+- View live color-coded KPI gauge cards for Total Area, WNS Slack, TNS Slack, and Total Power.
+- View live embedded 4-panel prediction dashboard plots and circuit complexity metrics.
+- Switch foundry process nodes (NanGate 45nm, TSMC 28nm) in real time.
+
+---
+
 ## Python API Usage
 
 ```python
