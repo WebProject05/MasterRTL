@@ -34,6 +34,7 @@ from src.data_prep.sog_converter import (
 )
 from src.data_prep.yosys_synthesis import run_yosys_synthesis
 from src.models.master_rtl import MasterRTL
+from src.models.optimizer_advisor import PPAOptimizationAdvisor
 
 
 def _get_box_chars() -> dict[str, str]:
@@ -366,6 +367,15 @@ def predict_verilog_file(
     if target_tech:
         transfer_res = model.transfer(pred, stats, target_technology=target_tech)
 
+    # 5. Optimization Advisory & What-If Simulation
+    advisor_res = PPAOptimizationAdvisor.evaluate_design(
+        model=model,
+        stats=stats,
+        paths=paths,
+        pred=pred,
+        clk_period=clk_period,
+    )
+
     elapsed = time.perf_counter() - start_time
 
     return {
@@ -375,6 +385,7 @@ def predict_verilog_file(
         "paths": paths,
         "prediction": pred,
         "transfer": transfer_res,
+        "advisor": advisor_res,
         "elapsed_seconds": round(elapsed, 4),
     }
 
@@ -406,6 +417,13 @@ def main() -> int:
         default=None,
         choices=["TSMC_28nm_TYP", "TSMC_28nm_MIN", "TSMC_28nm_MAX", "NanGate_45nm_MIN", "NanGate_45nm_MAX"],
         help="Optional technology corner to transfer predictions to (e.g. TSMC_28nm_TYP)",
+    )
+    parser.add_argument(
+        "--optimize",
+        "--advisor",
+        action="store_true",
+        dest="optimize",
+        help="Generate intelligent PPA optimization recommendations and what-if projection",
     )
     parser.add_argument(
         "--plot",
@@ -479,6 +497,14 @@ def main() -> int:
                     elapsed_time=res["elapsed_seconds"],
                 )
                 print(report_str)
+
+                # Print optimization advisor report if requested
+                if args.optimize and "advisor" in res:
+                    adv_str = PPAOptimizationAdvisor.format_advisory_table(
+                        advisory_res=res["advisor"],
+                        top_module=res["top_module"],
+                    )
+                    print(adv_str)
 
                 # Generate graph if requested
                 if args.plot:

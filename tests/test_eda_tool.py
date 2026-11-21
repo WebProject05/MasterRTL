@@ -83,6 +83,48 @@ def test_eda_shell_commands(sample_verilog: Path, checkpoint_path: Path, capsys:
     captured = capsys.readouterr()
     assert "TSMC 28nm TYP" in captured.out or "Transferred Technology" in captured.out
 
+    # 9. Test optimize (advisor)
+    shell.do_optimize("")
+    captured = capsys.readouterr()
+    assert "Smart PPA Optimization Advisor" in captured.out
+    assert "BOTTLENECK DIAGNOSTICS" in captured.out
+    assert "ACTIONABLE RTL OPTIMIZATION" in captured.out
+
+    # 10. Test whatif
+    shell.do_whatif("combined")
+    captured = capsys.readouterr()
+    assert "WHAT-IF EXPLORATION" in captured.out
+    assert "COMBINED_OPT" in captured.out
+
+
+def test_ppa_optimization_advisor(sample_verilog: Path, checkpoint_path: Path):
+    from src.models.optimizer_advisor import PPAOptimizationAdvisor
+    from scripts.predict import predict_verilog_file
+
+    with checkpoint_path.open("rb") as f:
+        model: MasterRTL = pickle.load(f)
+
+    res = predict_verilog_file(sample_verilog, model, clk_period=1.0)
+    assert "advisor" in res
+    adv = res["advisor"]
+
+    assert "findings" in adv
+    assert len(adv["findings"]) > 0
+    assert "recommendations" in adv
+    assert len(adv["recommendations"]) > 0
+    assert "what_if" in adv
+    assert "combined" in adv["what_if"]
+
+    comb = adv["what_if"]["combined"]
+    assert "baseline" in comb
+    assert "projected" in comb
+    assert "improvement" in comb
+    assert comb["improvement"]["power_savings_pct"] >= 0
+
+    table_str = PPAOptimizationAdvisor.format_advisory_table(adv, res["top_module"])
+    assert "Smart PPA Optimization Advisor" in table_str
+    assert "WHAT-IF PROJECTED PPA" in table_str
+
 
 def test_eda_gui_endpoints(checkpoint_path: Path):
     server = HTTPServer(("127.0.0.1", 0), MasterRTLEDAHandler)
@@ -98,6 +140,7 @@ def test_eda_gui_endpoints(checkpoint_path: Path):
             assert res.status == 200
             html = res.read().decode("utf-8")
             assert "MasterRTL EDA Studio" in html
+            assert "PPA Optimization Advisor & What-If" in html
 
         # 2. GET /api/designs
         with urlopen(f"{base_url}/api/designs") as res:
@@ -130,6 +173,9 @@ def test_eda_gui_endpoints(checkpoint_path: Path):
             assert "prediction" in result
             assert result["prediction"]["wns"] != 0.0
             assert result["prediction"]["area_um2"] > 0.0
+            assert "advisor" in result
+            assert "findings" in result["advisor"]
+            assert "what_if" in result["advisor"]
 
     finally:
         server.shutdown()

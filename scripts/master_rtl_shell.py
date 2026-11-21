@@ -271,7 +271,7 @@ class MasterRTLEDAShell(cmd.Cmd):
             return
 
         out_dir = PROJECT_ROOT / "data" / "reports" / "predictions"
-        args = shlex.split(arg)
+        args = shlex.split(arg, posix=(os.name != "nt"))
         if "-output" in args:
             idx = args.index("-output")
             if idx + 1 < len(args):
@@ -286,6 +286,80 @@ class MasterRTLEDAShell(cmd.Cmd):
         print(f"[SUCCESS] Visual report saved to:")
         print(f"          * PNG (300 DPI): {png_path}")
         print(f"          * PDF (Vector) : {pdf_path}\n")
+
+    # -------------------------------------------------------------------------
+    # Command: optimize (report_optimization)
+    # -------------------------------------------------------------------------
+    def do_optimize(self, arg: str) -> None:
+        """optimize
+        Runs the Smart PPA Optimization Advisor, displaying circuit bottleneck
+        diagnostics, actionable RTL improvement techniques, and projected PPA."""
+        if not self.current_result:
+            print("Error: No design currently loaded. Use 'read_verilog <file.v>' first.")
+            return
+
+        from src.models.optimizer_advisor import PPAOptimizationAdvisor
+        advisor = self.current_result.get("advisor")
+        if not advisor and self.model:
+            advisor = PPAOptimizationAdvisor.evaluate_design(
+                model=self.model,
+                stats=self.current_result["stats"],
+                paths=self.current_result["paths"],
+                pred=self.current_result["prediction"],
+                clk_period=self.clk_period,
+            )
+            self.current_result["advisor"] = advisor
+
+        report = PPAOptimizationAdvisor.format_advisory_table(advisor, self.current_result["top_module"])
+        print(report)
+
+    def do_report_optimization(self, arg: str) -> None:
+        """report_optimization (alias for 'optimize')"""
+        self.do_optimize(arg)
+
+    # -------------------------------------------------------------------------
+    # Command: whatif
+    # -------------------------------------------------------------------------
+    def do_whatif(self, arg: str) -> None:
+        """whatif [combined | pipelining | clock_gating]
+        Simulates what-if RTL optimization scenarios and prints the comparison."""
+        if not self.current_result or not self.model:
+            print("Error: No design currently loaded. Use 'read_verilog <file.v>' first.")
+            return
+
+        scenario = arg.strip().lower() or "combined_opt"
+        if scenario in {"combined", "opt", "all"}:
+            scenario = "combined_opt"
+        elif scenario in {"pipe", "pipeline"}:
+            scenario = "pipelining"
+        elif scenario in {"cg", "gating", "power"}:
+            scenario = "clock_gating"
+
+        from src.models.optimizer_advisor import PPAOptimizationAdvisor
+        res = PPAOptimizationAdvisor.simulate_what_if(
+            model=self.model,
+            stats=self.current_result["stats"],
+            paths=self.current_result["paths"],
+            clk_period=self.clk_period,
+            scenario=scenario,
+        )
+
+        base = res["baseline"]
+        proj = res["projected"]
+        imp = res["improvement"]
+
+        print("\n" + "=" * 74)
+        print(f"  WHAT-IF EXPLORATION: Scenario '{scenario.upper()}'")
+        print("=" * 74)
+        print(f"  {'Metric':<18} {'Baseline':<14} {'Projected':<14} {'Delta / Gain'}")
+        print("-" * 74)
+        d_wns = imp['delta_wns']
+        wns_note = "CLOSURE MET" if proj['wns'] >= 0 else "Slack Improved"
+        print(f"  {'Timing (WNS)':<18} {base['wns']:>7.3f} ns     {proj['wns']:>7.3f} ns     {d_wns:>+7.3f} ns ({wns_note})")
+        print(f"  {'Timing (TNS)':<18} {base['tns']:>7.3f} ns     {proj['tns']:>7.3f} ns     (Baseline: {base['tns']:.3f} ns)")
+        print(f"  {'Total Power':<18} {base['power_mW']:>7.3f} mW     {proj['power_mW']:>7.3f} mW     {imp['power_savings_pct']:>+5.1f}% power saved")
+        print(f"  {'Silicon Area':<18} {base['area_um2']:>7.1f} um^2   {proj['area_um2']:>7.1f} um^2   {imp['area_overhead_pct']:>+5.1f}% area impact")
+        print("=" * 74 + "\n")
 
     # -------------------------------------------------------------------------
     # Command: set_target_technology

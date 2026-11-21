@@ -195,6 +195,9 @@ You can pass any synthesizable Verilog (`.v` or `.sv`) file to `scripts/predict.
 # 2. Predict PPA and generate a visual 4-panel dashboard (.png and .pdf)
 .\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --plot
 
+# 3. Predict PPA with Smart Optimization Advisory & What-If Projections
+.\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --optimize
+
 # 3. Predict with Technology Transfer (e.g., TSMC 28nm)
 .\.venv\Scripts\python.exe scripts/predict.py path/to/my_design.v --transfer TSMC_28nm_TYP --plot
 
@@ -266,11 +269,13 @@ python scripts/master_rtl_shell.py
 | `set_target_technology <node>` | Switch foundry process node (`TSMC_28nm_TYP`, `TSMC_28nm_MIN`, etc.). |
 | `set_clock_period <ns>` | Dynamically update target clock period (e.g. `0.8` for 1.25 GHz). |
 | `plot_ppa [-output <dir>]` | Exports publication-quality 300-DPI PNG and vector PDF PPA dashboard. |
+| `optimize` | Smart PPA Optimization Advisor: diagnoses bottlenecks and gives actionable fixes. |
+| `whatif [scenario]` | Simulates what-if PPA improvements (`combined`, `pipelining`, `clock_gating`). |
 | `list_designs [filter]` | Lists benchmark Verilog files in `data/raw_rtl/`. |
 | `gui` | Spawns the Web EDA Studio and opens it in your default browser. |
 
 ### 2. Interactive Web EDA Studio (`http://localhost:8080`)
-A local, zero-dependency browser workbench with real-time gauges, Verilog code editor, and live PPA telemetry:
+A local, zero-dependency browser workbench with real-time gauges, Verilog code editor, live PPA telemetry, and the **PPA Optimization Advisor**:
 ```powershell
 # Windows PowerShell
 .\eda_gui.ps1
@@ -284,6 +289,7 @@ Open **[http://localhost:8080](http://localhost:8080)** in any modern browser to
 - Trigger instant 1-second presynthesis PPA estimation.
 - View live color-coded KPI gauge cards for Total Area, WNS Slack, TNS Slack, and Total Power.
 - View live embedded 4-panel prediction dashboard plots and circuit complexity metrics.
+- **PPA Optimization Advisor & What-If Explorer**: Diagnoses circuit bottlenecks, gives actionable RTL redesign strategies, and visualizes before/after PPA improvements across what-if scenarios.
 - Switch foundry process nodes (NanGate 45nm, TSMC 28nm) in real time.
 
 ---

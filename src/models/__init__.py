@@ -31,6 +31,7 @@ from src.models.baseline_common import (
 )
 from src.models.baseline_iccad21 import ICCAD21Baseline
 from src.models.baseline_isca22 import ISCA22Baseline
+from src.models.optimizer_advisor import PPAOptimizationAdvisor
 
 __all__ = [
     "AreaPPAEstimator",
@@ -58,5 +59,6 @@ __all__ = [
     "extract_iccad21_tree_features",
     "extract_isca22_path_features",
     "extract_isca22_design_features",
+    "PPAOptimizationAdvisor",
 ]
 

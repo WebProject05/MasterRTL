@@ -8,7 +8,7 @@ if (-not (Test-Path $VenvPy)) {
 
 if ($args.Count -eq 0) {
     Write-Host "MasterRTL Fast Inference Launcher"
-    Write-Host "Usage: .\predict.ps1 path\to\design.v [--plot] [--transfer TSMC_28nm_TYP]"
+    Write-Host "Usage: .\predict.ps1 path\to\design.v [--plot] [--optimize] [--transfer TSMC_28nm_TYP]"
     exit 1
 }
 
